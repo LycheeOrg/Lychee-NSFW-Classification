@@ -11,9 +11,7 @@ from app.config import settings
 _ALWAYS_BLOCK = frozenset({"ANUS_EXPOSED", "MALE_GENITALIA_EXPOSED"})
 
 # Parts that are unsafe only when they cover enough of the image
-_UNSAFE_PARTS = frozenset(
-    {"FEMALE_GENITALIA_EXPOSED", "ANUS_EXPOSED", "MALE_GENITALIA_EXPOSED"}
-)
+_UNSAFE_PARTS = frozenset({"FEMALE_GENITALIA_EXPOSED", "ANUS_EXPOSED", "MALE_GENITALIA_EXPOSED"})
 
 _detector: NudeDetector | None = None
 
@@ -58,9 +56,7 @@ def detect_from_url(image_url: str) -> tuple[list[dict], int, int]:
         os.unlink(tmp_path)
 
 
-def classify(
-    raw_detections: list[dict], image_width: int, image_height: int
-) -> tuple[bool, list[dict]]:
+def classify(raw_detections: list[dict], image_width: int, image_height: int) -> tuple[bool, list[dict]]:
     """
     Filter detections by confidence, compute area_ratio per detection, and
     determine whether the image is unsafe.

@@ -148,8 +148,5 @@ jobs:
           push: false
           load: true
           tags: lychee-ai-vision:ci
-          # Override the model-bake step by targeting the builder stage
-          # to avoid downloading 300MB of model weights in CI.
-          target: builder
           cache-from: type=gha
           cache-to: type=gha,mode=max
