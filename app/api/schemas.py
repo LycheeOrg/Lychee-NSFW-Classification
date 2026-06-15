@@ -64,6 +64,7 @@ class DetectCallbackPayload(BaseModel):
     should_block: bool
     should_review: bool
     is_sensitive: bool
+    all_detected: list[Detection]
     block_detected: list[Detection]
     review_detected: list[Detection]
     sensitive_detected: list[Detection]

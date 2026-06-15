@@ -284,6 +284,7 @@ async def test_run_detection_job_calls_callback(tmp_path: Path) -> None:
         "should_block": False,
         "should_review": False,
         "is_sensitive": False,
+        "all_detected": [],
         "block_detected": [],
         "review_detected": [],
         "sensitive_detected": [],

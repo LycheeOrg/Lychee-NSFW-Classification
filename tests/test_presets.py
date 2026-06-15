@@ -154,6 +154,7 @@ def test_graduated_area_threshold_triggers_correct_tiers() -> None:
         s = MagicMock()
         s.confidence_threshold = 0.1
         s.area_ratio_threshold = 0.0
+        s.debug_detect_threshold = 0.0
         s.block = LabelSetConfig(
             labels=["FEMALE_GENITALIA_EXPOSED"],
             area_ratio=block_area,

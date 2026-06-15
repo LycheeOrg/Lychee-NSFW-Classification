@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 from typing import TYPE_CHECKING
@@ -10,6 +11,8 @@ from PIL import Image
 
 if TYPE_CHECKING:
     from app.config import AppSettings, LabelSetConfig
+
+logger = logging.getLogger(__name__)
 
 _detector: NudeDetector | None = None
 
@@ -95,11 +98,13 @@ def classify(
     total_area = image_width * image_height
     global_conf = settings.confidence_threshold
     global_area = settings.area_ratio_threshold
+    debug_floor = settings.debug_detect_threshold
 
     block_set = set(settings.block.labels)
     review_set = set(settings.review.labels)
     sensitive_set = set(settings.sensitive.labels)
 
+    all_detected: list[dict] = []
     block_detected: list[dict] = []
     review_detected: list[dict] = []
     sensitive_detected: list[dict] = []
@@ -107,6 +112,8 @@ def classify(
     for d in raw_detections:
         label: str = d["class"]
         confidence: float = d["score"]
+        if confidence < debug_floor:
+            continue
         box: list = d["box"]  # [x, y, width, height]
 
         det_width, det_height = int(box[2]), int(box[3])
@@ -126,6 +133,9 @@ def classify(
             "area_ratio": area_ratio,
         }
 
+        all_detected.append(det)
+        logger.debug("detected label=%s confidence=%.3f area_ratio=%.4f", label, confidence, area_ratio)
+
         if label in block_set and _check_set(label, confidence, area_ratio, settings.block, global_conf, global_area):
             block_detected.append(det)
         if label in review_set and _check_set(label, confidence, area_ratio, settings.review, global_conf, global_area):
@@ -139,6 +149,7 @@ def classify(
         "should_block": bool(block_detected),
         "should_review": bool(review_detected),
         "is_sensitive": bool(sensitive_detected),
+        "all_detected": all_detected,
         "block_detected": block_detected,
         "review_detected": review_detected,
         "sensitive_detected": sensitive_detected,

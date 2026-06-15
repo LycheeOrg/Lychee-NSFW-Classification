@@ -170,6 +170,22 @@ Accept: application/json
   "should_block": false,
   "should_review": true,
   "is_sensitive": true,
+  "all_detected": [
+    {
+      "label": "FEMALE_BREAST_EXPOSED",
+      "confidence": 0.83,
+      "bbox": {"x": 50, "y": 100, "width": 200, "height": 180},
+      "area_pixels": 36000,
+      "area_ratio": 0.075
+    },
+    {
+      "label": "FEMALE_BREAST_COVERED",
+      "confidence": 0.71,
+      "bbox": {"x": 260, "y": 110, "width": 180, "height": 160},
+      "area_pixels": 28800,
+      "area_ratio": 0.060
+    }
+  ],
   "block_detected": [],
   "review_detected": [
     {
@@ -199,6 +215,7 @@ Accept: application/json
 | `should_block` | bool | `true` if any detection matched the block tier. |
 | `should_review` | bool | `true` if any detection matched the review tier. |
 | `is_sensitive` | bool | `true` if any detection matched the sensitive tier. |
+| `all_detected` | array | Every NudeNet detection that passed `VISION_NSFW_DEBUG_DETECT_THRESHOLD`, regardless of tier membership. Includes detections that did not match any configured label set. Useful for Lychee-side filtering and threshold tuning. |
 | `block_detected` | array | Detections that triggered the block tier. Empty if `should_block` is `false`. |
 | `review_detected` | array | Detections that triggered the review tier. |
 | `sensitive_detected` | array | Detections that triggered the sensitive tier. |

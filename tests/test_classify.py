@@ -21,6 +21,7 @@ def _make_set(
 def _make_settings(
     confidence_threshold: float = 0.1,
     area_ratio_threshold: float = 0.0,
+    debug_detect_threshold: float = 0.0,
     block: LabelSetConfig | None = None,
     review: LabelSetConfig | None = None,
     sensitive: LabelSetConfig | None = None,
@@ -28,6 +29,7 @@ def _make_settings(
     s = MagicMock()
     s.confidence_threshold = confidence_threshold
     s.area_ratio_threshold = area_ratio_threshold
+    s.debug_detect_threshold = debug_detect_threshold
     s.block = block if block is not None else _make_set(["ANUS_EXPOSED", "MALE_GENITALIA_EXPOSED"])
     s.review = review if review is not None else _make_set(["FEMALE_BREAST_EXPOSED", "BUTTOCKS_EXPOSED"])
     s.sensitive = sensitive if sensitive is not None else _make_set(["FEMALE_BREAST_COVERED", "BELLY_EXPOSED"])

@@ -100,6 +100,14 @@ class AppSettings(BaseSettings):
     """Global minimum fraction of the image area a detection must cover to trigger any tier.
     ``0.0`` (default) means area is not considered."""
 
+    debug_detect_threshold: float = Field(default=0.0, ge=0.0, le=1.0)
+    """Absolute confidence floor applied before any tier evaluation.
+
+    Detections below this value are discarded entirely and will not appear
+    in ``all_detected``, ``block_detected``, ``review_detected``, or
+    ``sensitive_detected``.  Default ``0.0`` keeps all NudeNet output.
+    Raise it (e.g. ``0.01``) to suppress near-zero-confidence noise."""
+
     # --- Preset ---
     preset: str | None = None
     """Load a named preset as the baseline for block / review / sensitive.
@@ -231,6 +239,7 @@ class AppSettings(BaseSettings):
         return {
             "confidence_threshold": str(self.confidence_threshold),
             "area_ratio_threshold": str(self.area_ratio_threshold),
+            "debug_detect_threshold": str(self.debug_detect_threshold),
             "block": json.dumps(self.block.model_dump()),
             "review": json.dumps(self.review.model_dump()),
             "sensitive": json.dumps(self.sensitive.model_dump()),

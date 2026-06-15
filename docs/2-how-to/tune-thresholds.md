@@ -41,10 +41,14 @@ Set in `.env` or via environment variables. Used as the fallback when no tier or
 |---|---|---|
 | `VISION_NSFW_CONFIDENCE_THRESHOLD` | `0.1` | Minimum NudeNet score for any detection to trigger any tier. |
 | `VISION_NSFW_AREA_RATIO_THRESHOLD` | `0.0` | Minimum image fraction a detection must cover. `0.0` = no area filter. |
+| `VISION_NSFW_DEBUG_DETECT_THRESHOLD` | `0.0` | Absolute confidence floor **before** tier evaluation. Detections below this value are discarded entirely — they will not appear in `all_detected` or any tier list. Useful for suppressing near-zero-confidence noise from the callback payload without affecting tier thresholds. |
 
 ```dotenv
 VISION_NSFW_CONFIDENCE_THRESHOLD=0.15
 VISION_NSFW_AREA_RATIO_THRESHOLD=0.01
+
+# Strip out any NudeNet detection below 1% confidence before processing
+VISION_NSFW_DEBUG_DETECT_THRESHOLD=0.01
 ```
 
 ---

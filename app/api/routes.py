@@ -211,11 +211,16 @@ async def _run_detection_job(
         result = classify(raw, w, h, settings)
 
         logger.info(
-            "NSFW detection complete for photo_id=%s: should_block=%s, should_review=%s, is_sensitive=%s",
+            "NSFW detection complete for photo_id=%s: should_block=%s, should_review=%s, is_sensitive=%s | "
+            "block=%s review=%s sensitive=%s all=%s",
             photo_id,
             result["should_block"],
             result["should_review"],
             result["is_sensitive"],
+            [d["label"] for d in result["block_detected"]],
+            [d["label"] for d in result["review_detected"]],
+            [d["label"] for d in result["sensitive_detected"]],
+            [(d["label"], round(d["confidence"], 3), round(d["area_ratio"], 4)) for d in result["all_detected"]],
         )
 
         payload = DetectCallbackPayload(
@@ -223,6 +228,7 @@ async def _run_detection_job(
             should_block=result["should_block"],
             should_review=result["should_review"],
             is_sensitive=result["is_sensitive"],
+            all_detected=[Detection.model_validate(d) for d in result["all_detected"]],
             block_detected=[Detection.model_validate(d) for d in result["block_detected"]],
             review_detected=[Detection.model_validate(d) for d in result["review_detected"]],
             sensitive_detected=[Detection.model_validate(d) for d in result["sensitive_detected"]],

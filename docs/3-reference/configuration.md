@@ -52,6 +52,7 @@ These values are used as fallbacks when no tier-level or label-level threshold i
 |---|---|---|
 | `VISION_NSFW_CONFIDENCE_THRESHOLD` | `0.1` | Minimum NudeNet confidence score (`0.0–1.0`) for a detection to trigger any tier. |
 | `VISION_NSFW_AREA_RATIO_THRESHOLD` | `0.0` | Minimum fraction of the image area (`0.0–1.0`) a detection must cover to trigger any tier. `0.0` = no area filter. |
+| `VISION_NSFW_DEBUG_DETECT_THRESHOLD` | `0.0` | Absolute confidence floor applied **before** tier evaluation. Detections below this value are discarded entirely and will not appear in `all_detected` or any tier list. `0.0` keeps all NudeNet output. Raise (e.g. `0.01`) to suppress near-zero-confidence noise from the callback payload. |
 
 ---
 
