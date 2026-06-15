@@ -419,14 +419,10 @@ def test_detect_with_unknown_preset_returns_400(
 @pytest.mark.asyncio
 @respx.mock
 async def test_run_detection_job_uses_per_request_preset(tmp_path: Path) -> None:
-    import json
     from concurrent.futures import ThreadPoolExecutor
 
     from app.api.routes import _run_detection_job
-    from app.config.models import LabelSetConfig, PresetOverride
-
-    # Settings with no active preset; strict override configured via env
-    from app.config.models import PresetTierOverride
+    from app.config.models import PresetOverride, PresetTierOverride
 
     settings = _make_settings(
         strict=PresetOverride(block=PresetTierOverride(confidence=0.95)),
@@ -434,11 +430,11 @@ async def test_run_detection_job_uses_per_request_preset(tmp_path: Path) -> None
     img = tmp_path / "photo.jpg"
     img.write_bytes(b"fake")
 
-    callback_route = respx.post("http://lychee/api/v2/NsfwDetection/results").mock(return_value=httpx.Response(200))
+    respx.post("http://lychee/api/v2/NsfwDetection/results").mock(return_value=httpx.Response(200))
 
-    captured: dict = {}
+    captured: dict[str, Any] = {}
 
-    def _fake_classify(raw, w, h, s):
+    def _fake_classify(raw: list[dict], w: int, h: int, s: Any) -> dict[str, Any]:
         captured["block_labels"] = s.block.labels
         captured["block_confidence"] = s.block.confidence
         return {
@@ -451,9 +447,8 @@ async def test_run_detection_job_uses_per_request_preset(tmp_path: Path) -> None
             "sensitive_detected": [],
         }
 
-    raw = []
     with (
-        patch("app.detection.detector.detect_from_path", return_value=(raw, 800, 600)),
+        patch("app.detection.detector.detect_from_path", return_value=([], 800, 600)),
         patch("app.detection.detector.classify", side_effect=_fake_classify),
     ):
         executor = ThreadPoolExecutor(max_workers=1)
