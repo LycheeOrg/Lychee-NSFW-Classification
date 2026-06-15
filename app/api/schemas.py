@@ -27,6 +27,17 @@ class DetectRequest(BaseModel):
     before opening the file (path-traversal protection).
     """
 
+    preset: str | None = None
+    """Named preset to apply for this specific request.
+
+    When set, overrides the service-level ``VISION_NSFW_PRESET`` / ``VISION_NSFW_BLOCK`` /
+    ``VISION_NSFW_REVIEW`` / ``VISION_NSFW_SENSITIVE`` configuration for this job only.
+    Per-preset env overrides (e.g. ``VISION_NSFW_STRICT__BLOCK__CONFIDENCE``) still apply.
+
+    Valid values: ``strict``, ``moderation``, ``nude_female``, ``permissive``, ``social_media``.
+    Omit (or ``null``) to use the service default.
+    """
+
 
 class BoundingBox(BaseModel):
     """Pixel-space bounding box for a single detection."""

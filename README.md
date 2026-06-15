@@ -108,6 +108,20 @@ VISION_NSFW_PRESET=strict
 
 Individual tier settings (`VISION_NSFW_BLOCK`, `VISION_NSFW_REVIEW`, `VISION_NSFW_SENSITIVE`) always override the preset, so you can start from a preset and refine from there.
 
+You can also **fine-tune each preset independently** at startup and let callers **select a preset per request**:
+
+```dotenv
+# Raise the confidence bar for the strict preset's block tier
+VISION_NSFW_STRICT__BLOCK__CONFIDENCE=0.9
+
+# Require detections to cover ≥ 5 % of the image for nude_female's review tier
+VISION_NSFW_NUDE_FEMALE__REVIEW__AREA_RATIO=0.05
+```
+
+```json
+{ "photo_id": "42", "photo_path": "2024/01/photo.jpg", "preset": "strict" }
+```
+
 See [Choose a preset](docs/2-how-to/choose-a-preset.md) and [Configure classification tiers](docs/2-how-to/tune-thresholds.md) for details.
 
 ## Environment variables
@@ -131,6 +145,7 @@ All variables are prefixed `VISION_NSFW_`. Copy `.env.example` to `.env` and fil
 | `VISION_NSFW_BLOCK` | _(see defaults)_ | JSON object configuring the block tier. See [Configuration Reference](docs/3-reference/configuration.md). |
 | `VISION_NSFW_REVIEW` | _(see defaults)_ | JSON object configuring the review tier. |
 | `VISION_NSFW_SENSITIVE` | _(see defaults)_ | JSON object configuring the sensitive tier. |
+| `VISION_NSFW_<PRESET>__<TIER>__<FIELD>` | _(none)_ | Per-preset threshold override. Tunes a specific preset in isolation so all presets are ready for per-request selection. Example: `VISION_NSFW_STRICT__BLOCK__CONFIDENCE=0.9`. |
 
 Full reference: [docs/3-reference/configuration.md](docs/3-reference/configuration.md)
 
@@ -154,11 +169,16 @@ Interactive docs: `http://localhost:8000/docs`
 ```json
 {
   "photo_id": "42",
-  "photo_path": "2024/01/photo.jpg"
+  "photo_path": "2024/01/photo.jpg",
+  "preset": "strict"
 }
 ```
 
-`photo_path` is relative to the shared volume root (`VISION_NSFW_PHOTOS_PATH`). The service validates it stays within that root.
+| Field | Required | Description |
+|---|---|---|
+| `photo_id` | Yes | Lychee photo identifier, echoed back in the callback. |
+| `photo_path` | Yes | Path relative to `VISION_NSFW_PHOTOS_PATH`. Validated to stay within that root. |
+| `preset` | No | Override the service-level preset for this job. See [Choose a preset](docs/2-how-to/choose-a-preset.md). |
 
 The endpoint returns **`202 Accepted`** immediately. Results arrive via callback.
 

@@ -90,13 +90,19 @@ async def detect(
         )
         raise HTTPException(status_code=400, detail="photo_path does not exist or is not a file")
 
+    if body.preset is not None:
+        from app.config.presets import PRESETS
+
+        if body.preset not in PRESETS:
+            raise HTTPException(status_code=400, detail=f"Unknown preset {body.preset!r}")
+
     import json
 
     queue: JobQueue = get_queue(request)
     accepted = await queue.enqueue(
         job_type="detect",
         photo_id=body.photo_id,
-        payload=json.dumps({"photo_path": str(resolved)}),
+        payload=json.dumps({"photo_path": str(resolved), "preset": body.preset}),
     )
     if not accepted:
         raise HTTPException(status_code=429, detail="Queue is full — try again later")
@@ -194,21 +200,37 @@ async def _run_detection_job(
     image_path: Path,
     executor: Executor,
     settings: AppSettings,
+    preset_name: str | None = None,
 ) -> None:
     """Classify an image for NSFW content and notify Lychee via callback.
 
     Runs entirely as an async background task after the ``/detect`` route has
     returned 202.  CPU-bound NudeNet inference is offloaded to ``executor`` via
     ``run_in_executor`` so the event loop remains responsive.
+
+    When *preset_name* is given it overrides the service-level label-set
+    configuration for this job only; per-preset env overrides still apply.
     """
-    logger.info("Starting NSFW detection job for photo_id=%s, path=%s", photo_id, image_path)
+    logger.info(
+        "Starting NSFW detection job for photo_id=%s, path=%s, preset=%s",
+        photo_id,
+        image_path,
+        preset_name,
+    )
     try:
         from app.detection.detector import classify, detect_from_path
 
         loop = asyncio.get_running_loop()
 
         raw, w, h = await loop.run_in_executor(executor, detect_from_path, str(image_path))
-        result = classify(raw, w, h, settings)
+
+        if preset_name is not None:
+            block, review, sensitive = settings.resolve_preset(preset_name)
+            effective_settings = settings.model_copy(update={"block": block, "review": review, "sensitive": sensitive})
+        else:
+            effective_settings = settings
+
+        result = classify(raw, w, h, effective_settings)
 
         logger.info(
             "NSFW detection complete for photo_id=%s: should_block=%s, should_review=%s, is_sensitive=%s | "

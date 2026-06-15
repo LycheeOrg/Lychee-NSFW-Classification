@@ -347,3 +347,128 @@ async def test_run_detection_job_sends_error_callback_on_failure(tmp_path: Path)
     body = json.loads(error_route.calls.last.request.content)
     assert body["status"] == "error"
     assert body["photo_id"] == "2"
+
+
+# ---------------------------------------------------------------------------
+# Per-request preset
+# ---------------------------------------------------------------------------
+
+
+def test_detect_with_valid_preset_enqueues(
+    stub_queue: _StubQueue,
+    tmp_path: Path,
+) -> None:
+    import json
+
+    settings = _make_settings(photos_path=str(tmp_path))
+    img = tmp_path / "photo.jpg"
+    img.write_bytes(b"fake")
+
+    @asynccontextmanager
+    async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
+        from concurrent.futures import ThreadPoolExecutor
+
+        app.state.queue = stub_queue
+        app.state.executor = ThreadPoolExecutor(max_workers=1)
+        yield
+        app.state.executor.shutdown(wait=False)
+
+    application = create_app(lifespan=_lifespan)
+    application.dependency_overrides[get_settings] = lambda: settings
+    with TestClient(application) as c:
+        response = c.post(
+            "/api/nsfw/detect",
+            json={"photo_id": "42", "photo_path": "photo.jpg", "preset": "strict"},
+            headers={"X-API-Key": "test-key"},
+        )
+    assert response.status_code == 202
+    call_kwargs = stub_queue.enqueue.call_args
+    payload = json.loads(call_kwargs.kwargs["payload"])
+    assert payload["preset"] == "strict"
+
+
+def test_detect_with_unknown_preset_returns_400(
+    stub_queue: _StubQueue,
+    tmp_path: Path,
+) -> None:
+    settings = _make_settings(photos_path=str(tmp_path))
+    img = tmp_path / "photo.jpg"
+    img.write_bytes(b"fake")
+
+    @asynccontextmanager
+    async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
+        from concurrent.futures import ThreadPoolExecutor
+
+        app.state.queue = stub_queue
+        app.state.executor = ThreadPoolExecutor(max_workers=1)
+        yield
+        app.state.executor.shutdown(wait=False)
+
+    application = create_app(lifespan=_lifespan)
+    application.dependency_overrides[get_settings] = lambda: settings
+    with TestClient(application) as c:
+        response = c.post(
+            "/api/nsfw/detect",
+            json={"photo_id": "42", "photo_path": "photo.jpg", "preset": "nonexistent"},
+            headers={"X-API-Key": "test-key"},
+        )
+    assert response.status_code == 400
+    assert "Unknown preset" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_run_detection_job_uses_per_request_preset(tmp_path: Path) -> None:
+    import json
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.api.routes import _run_detection_job
+    from app.config.models import LabelSetConfig, PresetOverride
+
+    # Settings with no active preset; strict override configured via env
+    from app.config.models import PresetTierOverride
+
+    settings = _make_settings(
+        strict=PresetOverride(block=PresetTierOverride(confidence=0.95)),
+    )
+    img = tmp_path / "photo.jpg"
+    img.write_bytes(b"fake")
+
+    callback_route = respx.post("http://lychee/api/v2/NsfwDetection/results").mock(return_value=httpx.Response(200))
+
+    captured: dict = {}
+
+    def _fake_classify(raw, w, h, s):
+        captured["block_labels"] = s.block.labels
+        captured["block_confidence"] = s.block.confidence
+        return {
+            "should_block": False,
+            "should_review": False,
+            "is_sensitive": False,
+            "all_detected": [],
+            "block_detected": [],
+            "review_detected": [],
+            "sensitive_detected": [],
+        }
+
+    raw = []
+    with (
+        patch("app.detection.detector.detect_from_path", return_value=(raw, 800, 600)),
+        patch("app.detection.detector.classify", side_effect=_fake_classify),
+    ):
+        executor = ThreadPoolExecutor(max_workers=1)
+        try:
+            await _run_detection_job(
+                photo_id="1",
+                image_path=img,
+                executor=executor,
+                settings=settings,
+                preset_name="strict",
+            )
+        finally:
+            executor.shutdown(wait=False)
+
+    # strict preset block labels should be used
+    assert "BUTTOCKS_EXPOSED" in captured["block_labels"]
+    # per-preset confidence override applied
+    assert captured["block_confidence"] == 0.95

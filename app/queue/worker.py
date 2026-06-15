@@ -53,4 +53,5 @@ async def _handle_detect(job: Any, state: Any, settings: AppSettings) -> None:
         image_path=Path(payload["photo_path"]),
         executor=state.executor,
         settings=settings,
+        preset_name=payload.get("preset"),
     )

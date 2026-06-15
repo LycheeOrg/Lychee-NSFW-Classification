@@ -7,7 +7,7 @@ from pathlib import Path
 from pydantic import Field, ValidationError, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app.config.models import LabelSetConfig
+from app.config.models import LabelSetConfig, PresetOverride
 
 _RED = "\033[31m"
 _YELLOW = "\033[33m"
@@ -113,7 +113,19 @@ class AppSettings(BaseSettings):
     """Load a named preset as the baseline for block / review / sensitive.
 
     Explicit ``VISION_NSFW_BLOCK``, ``VISION_NSFW_REVIEW``, or
-    ``VISION_NSFW_SENSITIVE`` values still override the preset.
+    ``VISION_NSFW_SENSITIVE`` values still override the preset.  Two override
+    modes are supported:
+
+    * **Full override** — supply ``labels`` (and optionally thresholds).  The
+      preset's label list is ignored entirely for that tier.
+      Example: ``VISION_NSFW_BLOCK='{"labels":["ANUS_EXPOSED"]}'``
+
+    * **Threshold-only override** — supply only threshold keys
+      (``confidence``, ``area_ratio``, ``label_thresholds``) *without*
+      ``labels``.  The preset's labels are kept and the explicit thresholds
+      are merged on top.
+      Example: ``VISION_NSFW_BLOCK__CONFIDENCE=0.9``
+      Example: ``VISION_NSFW_REVIEW__AREA_RATIO=0.05``
 
     Valid names: ``strict``, ``moderation``, ``nude_female``, ``permissive``,
     ``social_media``."""
@@ -129,9 +141,35 @@ class AppSettings(BaseSettings):
         preset = PRESETS.get(preset_name)
         if preset is None:
             raise ValueError(f"Unknown preset {preset_name!r}. Valid presets: {sorted(PRESETS)}")
+
+        # Per-preset env overrides, e.g. VISION_NSFW_STRICT__BLOCK__CONFIDENCE=0.9
+        preset_override_raw = data.get(preset_name) or {}
+
         for field in ("block", "review", "sensitive"):
+            preset_config = getattr(preset, field).model_dump()
+
+            # Merge preset-specific tier override (labels replaced only when explicitly set)
+            tier_raw = {}
+            if isinstance(preset_override_raw, dict):
+                raw = preset_override_raw.get(field) or {}
+                if isinstance(raw, dict):
+                    if "labels" in raw and raw["labels"] is not None:
+                        tier_raw["labels"] = raw["labels"]
+                    for key in ("confidence", "area_ratio", "label_thresholds"):
+                        if raw.get(key) is not None:
+                            tier_raw[key] = raw[key]
+
+            merged_preset = {**preset_config, **tier_raw}
+
             if field not in data:
-                data[field] = getattr(preset, field).model_dump()
+                data[field] = merged_preset
+            elif isinstance(data[field], dict) and "labels" not in data[field]:
+                # Global threshold-only override on top of the (already merged) preset config.
+                # e.g. VISION_NSFW_BLOCK__CONFIDENCE=0.8 with VISION_NSFW_PRESET=strict
+                # keeps strict's labels but uses confidence=0.8.
+                data[field] = {**merged_preset, **data[field]}
+            # else: global override includes explicit labels → use as-is (full override).
+
         return data
 
     # --- Label set configurations ---
@@ -168,6 +206,38 @@ class AppSettings(BaseSettings):
         )
     )
     """Labels and thresholds for the *sensitive* tier (``is_sensitive`` in the callback)."""
+
+    # --- Per-preset overrides ---
+    # Each field holds threshold/label overrides for the corresponding named preset.
+    # These are loaded from env vars using the preset name as the nested key, e.g.:
+    #   VISION_NSFW_STRICT__BLOCK__CONFIDENCE=0.9
+    #   VISION_NSFW_NUDE_FEMALE__REVIEW__AREA_RATIO=0.05
+    # All fields default to no-op (inherit from the preset definition).
+    strict: PresetOverride = Field(default_factory=PresetOverride)
+    moderation: PresetOverride = Field(default_factory=PresetOverride)
+    nude_female: PresetOverride = Field(default_factory=PresetOverride)
+    permissive: PresetOverride = Field(default_factory=PresetOverride)
+    social_media: PresetOverride = Field(default_factory=PresetOverride)
+
+    def resolve_preset(self, name: str) -> tuple[LabelSetConfig, LabelSetConfig, LabelSetConfig]:
+        """Return ``(block, review, sensitive)`` for a preset with its env overrides applied.
+
+        Used for per-request preset selection: the caller swaps in these label sets
+        instead of the global ``block`` / ``review`` / ``sensitive`` fields.
+
+        Raises ``ValueError`` for unknown preset names.
+        """
+        from app.config.presets import PRESETS
+
+        if name not in PRESETS:
+            raise ValueError(f"Unknown preset {name!r}. Valid presets: {sorted(PRESETS)}")
+        preset = PRESETS[name]
+        override: PresetOverride = getattr(self, name)
+        return (
+            override.block.apply_to(preset.block),
+            override.review.apply_to(preset.review),
+            override.sensitive.apply_to(preset.sensitive),
+        )
 
     # --- Concurrency ---
     thread_pool_size: int = 1

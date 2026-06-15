@@ -44,6 +44,62 @@ See [Choose a preset](../2-how-to/choose-a-preset.md) for a description of each 
 
 ---
 
+## Classification — per-preset overrides
+
+Each named preset can be independently tuned at startup so that all presets are fully configured before any request arrives. This lets Lychee (or any other caller) select a preset per request without the service needing to be reconfigured between calls.
+
+The env var pattern is:
+
+```
+VISION_NSFW_<PRESET>__<TIER>__<FIELD>=<value>
+```
+
+Where:
+- `<PRESET>` is the preset name in upper case: `STRICT`, `MODERATION`, `NUDE_FEMALE`, `PERMISSIVE`, `SOCIAL_MEDIA`
+- `<TIER>` is `BLOCK`, `REVIEW`, or `SENSITIVE`
+- `<FIELD>` is `CONFIDENCE`, `AREA_RATIO`, or `LABEL_THRESHOLDS`
+
+**Examples:**
+
+```dotenv
+# Raise the confidence bar for the strict preset's block tier
+VISION_NSFW_STRICT__BLOCK__CONFIDENCE=0.9
+
+# Require detections to cover at least 5% of the image before triggering
+# nude_female's review tier (reduces noise on small or background detections)
+VISION_NSFW_NUDE_FEMALE__REVIEW__AREA_RATIO=0.05
+
+# Require a minimum area before social_media blocks anything
+VISION_NSFW_SOCIAL_MEDIA__BLOCK__AREA_RATIO=0.02
+
+# Per-label threshold within a preset tier
+VISION_NSFW_STRICT__BLOCK__LABEL_THRESHOLDS='{"ANUS_EXPOSED": {"confidence": 0.1}}'
+```
+
+**Label replacement** — to replace a preset's label list entirely for one tier, set the `LABELS` subkey:
+
+```dotenv
+VISION_NSFW_PERMISSIVE__BLOCK__LABELS='["ANUS_EXPOSED", "FEMALE_GENITALIA_EXPOSED"]'
+```
+
+If `LABELS` is not set, the preset's original label list is kept and only the specified threshold fields are changed.
+
+**Scope** — per-preset overrides apply whenever that preset is used, regardless of how it is selected (via `VISION_NSFW_PRESET`, or via the `preset` field in a `POST /detect` request). They are completely independent of each other: configuring the strict preset does not affect moderation, and vice versa.
+
+**Priority order** (highest wins):
+
+```
+VISION_NSFW_BLOCK / REVIEW / SENSITIVE (global tier override)
+        │
+VISION_NSFW_<PRESET>__<TIER>__… (per-preset override)
+        │
+Preset base definition (label list and tier defaults)
+```
+
+The global tier variables (`VISION_NSFW_BLOCK`, etc.) only apply when no per-request preset is specified. When a `preset` field is sent in the request body, the global tier variables are ignored entirely for that job and only the preset base + per-preset overrides are used.
+
+---
+
 ## Classification — global thresholds
 
 These values are used as fallbacks when no tier-level or label-level threshold is configured.
@@ -160,6 +216,10 @@ MALE_BREAST_EXPOSED   MALE_GENITALIA_EXPOSED
 
 ## Example `.env`
 
+### Single-preset deployment
+
+Use one preset as the service default, with a global confidence override:
+
 ```dotenv
 # Required
 VISION_NSFW_API_KEY=change-me
@@ -178,6 +238,36 @@ VISION_NSFW_BLOCK__CONFIDENCE=0.7
 VISION_NSFW_BLOCK__LABEL_THRESHOLDS='{"ANUS_EXPOSED": {"confidence": 0.1}}'
 ```
 
+### Multi-preset deployment (per-request preset selection)
+
+Configure every preset at startup so callers can choose which one to apply per request via the `preset` field in `POST /detect`:
+
+```dotenv
+# Required
+VISION_NSFW_API_KEY=change-me
+VISION_NSFW_LYCHEE_API_URL=https://lychee.example.com
+
+# No service-level default — callers always specify the preset per request
+# VISION_NSFW_PRESET=  (leave unset)
+
+# Tune the strict preset: require higher confidence before blocking
+VISION_NSFW_STRICT__BLOCK__CONFIDENCE=0.85
+
+# Tune the nude_female preset: require detections to cover at least 5 % of the
+# image before triggering review (reduces noise on background detections)
+VISION_NSFW_NUDE_FEMALE__REVIEW__AREA_RATIO=0.05
+
+# Tune the moderation preset: only flag detections with at least 10 % confidence
+VISION_NSFW_MODERATION__REVIEW__CONFIDENCE=0.1
+```
+
+Lychee then selects the preset per photo:
+
+```json
+{ "photo_id": "42", "photo_path": "2024/01/photo.jpg", "preset": "strict" }
+```
+
 ---
 
 *Last updated: June 15, 2026*
+

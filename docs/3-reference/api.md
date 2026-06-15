@@ -68,7 +68,8 @@ Enqueue an NSFW detection job. Returns immediately; results are delivered via ca
 ```json
 {
   "photo_id": "string",
-  "photo_path": "string"
+  "photo_path": "string",
+  "preset": "string | null"
 }
 ```
 
@@ -76,6 +77,7 @@ Enqueue an NSFW detection job. Returns immediately; results are delivered via ca
 |---|---|---|
 | `photo_id` | Yes | Lychee-internal photo identifier, echoed back in the callback. |
 | `photo_path` | Yes | Photo path relative to `VISION_NSFW_PHOTOS_PATH` (e.g. `2024/01/photo.jpg`). The service validates that the resolved absolute path stays within the photos root. |
+| `preset` | No | Named preset to apply for this job. When set, the service-level `VISION_NSFW_PRESET` / `VISION_NSFW_BLOCK` / `VISION_NSFW_REVIEW` / `VISION_NSFW_SENSITIVE` configuration is ignored for this job and the named preset's label sets are used instead. Per-preset env overrides (e.g. `VISION_NSFW_STRICT__BLOCK__CONFIDENCE`) still apply. Valid values: `strict`, `moderation`, `nude_female`, `permissive`, `social_media`. Omit or set to `null` to use the service default. |
 
 **Response `202 Accepted`**
 
@@ -83,10 +85,11 @@ The job has been accepted and enqueued. No body.
 
 **Response `400 Bad Request`**
 
-`photo_path` resolves outside the allowed directory (path-traversal attempt), or the file does not exist.
+`photo_path` resolves outside the allowed directory (path-traversal attempt), the file does not exist, or an unknown `preset` name was supplied.
 
 ```json
 {"detail": "photo_path /etc/passwd is outside the allowed directory"}
+{"detail": "Unknown preset 'foo'"}
 ```
 
 **Response `401 Unauthorized`**
@@ -253,13 +256,24 @@ Sent when inference fails (corrupt file, unexpected error, etc.).
 
 ---
 
-## Example — submit a job
+## Examples
+
+### Submit a job using the service default
 
 ```bash
 curl -X POST http://localhost:8000/api/nsfw/detect \
   -H "Content-Type: application/json" \
   -H "X-API-Key: change-me" \
   -d '{"photo_id": "42", "photo_path": "2024/01/photo.jpg"}'
+```
+
+### Submit a job selecting a preset per request
+
+```bash
+curl -X POST http://localhost:8000/api/nsfw/detect \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: change-me" \
+  -d '{"photo_id": "42", "photo_path": "2024/01/photo.jpg", "preset": "strict"}'
 ```
 
 Response:
