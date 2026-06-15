@@ -1,0 +1,441 @@
+{
+	"openapi": "3.1.0",
+	"info": {
+		"title": "Lychee NSFW Classification Service",
+		"description": "NSFW content moderation microservice for Lychee photo gallery.",
+		"version": "0.1.0"
+	},
+	"paths": {
+		"/api/nsfw/detect": {
+			"post": {
+				"summary": "Detect",
+				"description": "Accept an NSFW detection job.\n\nValidates the photo path (path-traversal protection), then immediately\nreturns **202 Accepted** and enqueues detection for a background worker.\nReturns **429 Too Many Requests** when the queue is full.\nResults are POSTed back to Lychee's results endpoint once detection\ncompletes.",
+				"operationId": "detect_api_nsfw_detect_post",
+				"parameters": [
+					{
+						"name": "X-API-Key",
+						"in": "header",
+						"required": false,
+						"schema": {
+							"anyOf": [
+								{
+									"type": "string"
+								},
+								{
+									"type": "null"
+								}
+							],
+							"title": "X-Api-Key"
+						}
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/DetectRequest"
+							}
+						}
+					}
+				},
+				"responses": {
+					"202": {
+						"description": "Successful Response",
+						"content": {
+							"application/json": {
+								"schema": {}
+							}
+						}
+					},
+					"400": {
+						"description": "Invalid or inaccessible photo path"
+					},
+					"429": {
+						"description": "Queue is full — try again later"
+					},
+					"422": {
+						"description": "Validation Error",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/HTTPValidationError"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/api/nsfw/health": {
+			"get": {
+				"summary": "Health",
+				"description": "Return service health status.\n\nIntentionally unauthenticated so that load-balancers and Docker health\nchecks can probe it without an API key.",
+				"operationId": "health_api_nsfw_health_get",
+				"responses": {
+					"200": {
+						"description": "Successful Response",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/HealthResponse"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/api/nsfw/config": {
+			"get": {
+				"summary": "Service Config",
+				"description": "Return current runtime configuration values.\n\nThe endpoint is authenticated because it exposes operational details.\nSensitive values are redacted by ``AppSettings.to_diagnostics_payload``.",
+				"operationId": "service_config_api_nsfw_config_get",
+				"parameters": [
+					{
+						"name": "X-API-Key",
+						"in": "header",
+						"required": false,
+						"schema": {
+							"anyOf": [
+								{
+									"type": "string"
+								},
+								{
+									"type": "null"
+								}
+							],
+							"title": "X-Api-Key"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Successful Response",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ServiceConfigResponse"
+								}
+							}
+						}
+					},
+					"422": {
+						"description": "Validation Error",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/HTTPValidationError"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/api/nsfw/queue": {
+			"get": {
+				"tags": [
+					"queue"
+				],
+				"summary": "Queue Size",
+				"description": "Return the number of jobs currently waiting to be processed.",
+				"operationId": "queue_size_api_nsfw_queue_get",
+				"parameters": [
+					{
+						"name": "X-API-Key",
+						"in": "header",
+						"required": false,
+						"schema": {
+							"anyOf": [
+								{
+									"type": "string"
+								},
+								{
+									"type": "null"
+								}
+							],
+							"title": "X-Api-Key"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Successful Response",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/QueueSizeResponse"
+								}
+							}
+						}
+					},
+					"422": {
+						"description": "Validation Error",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/HTTPValidationError"
+								}
+							}
+						}
+					}
+				}
+			},
+			"delete": {
+				"tags": [
+					"queue"
+				],
+				"summary": "Queue Purge",
+				"description": "Delete all pending jobs from the queue. In-flight jobs are not affected.",
+				"operationId": "queue_purge_api_nsfw_queue_delete",
+				"parameters": [
+					{
+						"name": "X-API-Key",
+						"in": "header",
+						"required": false,
+						"schema": {
+							"anyOf": [
+								{
+									"type": "string"
+								},
+								{
+									"type": "null"
+								}
+							],
+							"title": "X-Api-Key"
+						}
+					}
+				],
+				"responses": {
+					"204": {
+						"description": "Successful Response"
+					},
+					"422": {
+						"description": "Validation Error",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/HTTPValidationError"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/api/nsfw/queue/{photo_id}": {
+			"get": {
+				"tags": [
+					"queue"
+				],
+				"summary": "Queue Position",
+				"description": "Return the position of a photo in the queue.\n\n- **present** → job is waiting; ``position`` is its 1-based rank among pending jobs.\n  ``position=0`` means the job is currently being processed.\n- **absent** → job is done (404).",
+				"operationId": "queue_position_api_nsfw_queue__photo_id__get",
+				"parameters": [
+					{
+						"name": "photo_id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"title": "Photo Id"
+						}
+					},
+					{
+						"name": "X-API-Key",
+						"in": "header",
+						"required": false,
+						"schema": {
+							"anyOf": [
+								{
+									"type": "string"
+								},
+								{
+									"type": "null"
+								}
+							],
+							"title": "X-Api-Key"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Successful Response",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/QueuePositionResponse"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "Photo not found in queue (already done or never submitted)"
+					},
+					"422": {
+						"description": "Validation Error",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/HTTPValidationError"
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	},
+	"components": {
+		"schemas": {
+			"DetectRequest": {
+				"properties": {
+					"photo_id": {
+						"type": "string",
+						"title": "Photo Id"
+					},
+					"photo_path": {
+						"type": "string",
+						"title": "Photo Path"
+					},
+					"preset": {
+						"anyOf": [
+							{
+								"type": "string"
+							},
+							{
+								"type": "null"
+							}
+						],
+						"title": "Preset"
+					}
+				},
+				"type": "object",
+				"required": [
+					"photo_id",
+					"photo_path"
+				],
+				"title": "DetectRequest",
+				"description": "Body sent by Lychee when dispatching an NSFW detection job.\n\n``callback_url`` is intentionally absent: the service reads\n``VISION_NSFW_LYCHEE_API_URL`` from env and posts results there directly."
+			},
+			"HTTPValidationError": {
+				"properties": {
+					"detail": {
+						"items": {
+							"$ref": "#/components/schemas/ValidationError"
+						},
+						"type": "array",
+						"title": "Detail"
+					}
+				},
+				"type": "object",
+				"title": "HTTPValidationError"
+			},
+			"HealthResponse": {
+				"properties": {
+					"status": {
+						"type": "string",
+						"title": "Status"
+					}
+				},
+				"type": "object",
+				"required": [
+					"status"
+				],
+				"title": "HealthResponse",
+				"description": "Response body for ``GET /health``."
+			},
+			"QueuePositionResponse": {
+				"properties": {
+					"photo_id": {
+						"type": "string",
+						"title": "Photo Id"
+					},
+					"position": {
+						"type": "integer",
+						"title": "Position"
+					}
+				},
+				"type": "object",
+				"required": [
+					"photo_id",
+					"position"
+				],
+				"title": "QueuePositionResponse",
+				"description": "Response body for ``GET /queue/{photo_id}``."
+			},
+			"QueueSizeResponse": {
+				"properties": {
+					"pending": {
+						"type": "integer",
+						"title": "Pending"
+					}
+				},
+				"type": "object",
+				"required": [
+					"pending"
+				],
+				"title": "QueueSizeResponse",
+				"description": "Response body for ``GET /queue``."
+			},
+			"ServiceConfigResponse": {
+				"properties": {
+					"config": {
+						"additionalProperties": {
+							"type": "string"
+						},
+						"type": "object",
+						"title": "Config"
+					}
+				},
+				"type": "object",
+				"required": [
+					"config"
+				],
+				"title": "ServiceConfigResponse",
+				"description": "Response body for ``GET /config``."
+			},
+			"ValidationError": {
+				"properties": {
+					"loc": {
+						"items": {
+							"anyOf": [
+								{
+									"type": "string"
+								},
+								{
+									"type": "integer"
+								}
+							]
+						},
+						"type": "array",
+						"title": "Location"
+					},
+					"msg": {
+						"type": "string",
+						"title": "Message"
+					},
+					"type": {
+						"type": "string",
+						"title": "Error Type"
+					},
+					"input": {
+						"title": "Input"
+					},
+					"ctx": {
+						"type": "object",
+						"title": "Context"
+					}
+				},
+				"type": "object",
+				"required": [
+					"loc",
+					"msg",
+					"type"
+				],
+				"title": "ValidationError"
+			}
+		}
+	}
+}

@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
 
 from app.api.routes import router
 from app.config import AppSettings, get_settings
@@ -135,6 +136,11 @@ def create_app(lifespan: Any = None) -> FastAPI:
         lifespan=used_lifespan,
     )
     application.include_router(router, prefix="/api/nsfw")
+
+    @application.get("/", include_in_schema=False)
+    async def _root() -> RedirectResponse:
+        return RedirectResponse(url="/api/nsfw/health")
+
     return application
 
 
