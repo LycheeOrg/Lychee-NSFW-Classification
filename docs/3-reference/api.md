@@ -16,7 +16,7 @@ All endpoints except `GET /health` require the `X-API-Key` header:
 X-API-Key: your-shared-secret
 ```
 
-The value must match the `API_KEY` environment variable. When `API_KEY` is empty, the check is disabled (development only). Requests with a missing or incorrect key receive `403 Forbidden`.
+The value must match `VISION_NSFW_API_KEY`. Requests with a missing or incorrect key receive `401 Unauthorized`.
 
 ---
 
@@ -34,45 +34,159 @@ Returns the service operational status. No authentication required.
 
 ---
 
+### `GET /api/nsfw/config`
+
+Returns the active runtime configuration (secrets redacted). Useful for verifying that env vars were applied correctly.
+
+**Response `200 OK`**
+
+```json
+{
+  "config": {
+    "confidence_threshold": "0.1",
+    "area_ratio_threshold": "0.0",
+    "block": "{\"labels\": [\"FEMALE_GENITALIA_EXPOSED\", ...], \"confidence\": null, ...}",
+    "review": "...",
+    "sensitive": "...",
+    "queue_backend": "database",
+    "queue_max_size": "0",
+    "thread_pool_size": "1",
+    "verify_ssl": "true",
+    "workers": "1"
+  }
+}
+```
+
+---
+
 ### `POST /api/nsfw/detect`
 
-Classify an image for explicit content.
+Enqueue an NSFW detection job. Returns immediately; results are delivered via callback.
 
 **Request body** (`application/json`)
 
 ```json
 {
   "photo_id": "string",
-  "image_url": "string | null",
-  "image_path": "string | null"
+  "photo_path": "string"
 }
 ```
 
 | Field | Required | Description |
 |---|---|---|
-| `photo_id` | Yes | Opaque identifier echoed back in the response. Used by Lychee to correlate the result with the original photo. |
-| `image_url` | Conditional | HTTP(S) URL of the image to classify. Must be provided if `image_path` is absent. |
-| `image_path` | Conditional | Absolute filesystem path to the image. Must be provided if `image_url` is absent. |
+| `photo_id` | Yes | Lychee-internal photo identifier, echoed back in the callback. |
+| `photo_path` | Yes | Photo path relative to `VISION_NSFW_PHOTOS_PATH` (e.g. `2024/01/photo.jpg`). The service validates that the resolved absolute path stays within the photos root. |
 
-Exactly one of `image_url` or `image_path` must be provided. Providing neither returns `422 Unprocessable Entity`.
+**Response `202 Accepted`**
+
+The job has been accepted and enqueued. No body.
+
+**Response `400 Bad Request`**
+
+`photo_path` resolves outside the allowed directory (path-traversal attempt), or the file does not exist.
+
+```json
+{"detail": "photo_path /etc/passwd is outside the allowed directory"}
+```
+
+**Response `401 Unauthorized`**
+
+Missing or incorrect `X-API-Key`.
+
+```json
+{"detail": "Invalid or missing API key"}
+```
+
+**Response `429 Too Many Requests`**
+
+The queue is full (`VISION_NSFW_QUEUE_MAX_SIZE` reached).
+
+```json
+{"detail": "Queue is full — try again later"}
+```
+
+---
+
+### `GET /api/nsfw/queue`
+
+Returns the number of pending jobs.
 
 **Response `200 OK`**
 
 ```json
+{"pending": 3}
+```
+
+---
+
+### `DELETE /api/nsfw/queue`
+
+Purges all pending jobs. In-flight jobs are not affected.
+
+**Response `204 No Content`**
+
+---
+
+### `GET /api/nsfw/queue/{photo_id}`
+
+Returns the queue position of a specific job.
+
+**Response `200 OK`**
+
+```json
+{"photo_id": "42", "position": 2}
+```
+
+`position` is 1-based. `position: 0` means the job is currently being processed.
+
+**Response `404 Not Found`**
+
+The job is not in the queue — it has already completed or was never submitted.
+
+---
+
+## Callback
+
+After detection completes, the service POSTs the result to:
+
+```
+POST {VISION_NSFW_LYCHEE_API_URL}/api/v2/NsfwDetection/results
+```
+
+Headers:
+
+```
+X-API-Key: <VISION_NSFW_API_KEY>
+Content-Type: application/json
+Accept: application/json
+```
+
+### Success payload
+
+```json
 {
   "photo_id": "string",
-  "is_safe": true,
-  "detections": [
+  "status": "success",
+  "should_block": false,
+  "should_review": true,
+  "is_sensitive": true,
+  "block_detected": [],
+  "review_detected": [
     {
-      "label": "string",
-      "confidence": 0.0,
-      "bbox": {
-        "x": 0,
-        "y": 0,
-        "width": 0,
-        "height": 0
-      },
-      "area_ratio": 0.0
+      "label": "FEMALE_BREAST_EXPOSED",
+      "confidence": 0.83,
+      "bbox": {"x": 50, "y": 100, "width": 200, "height": 180},
+      "area_pixels": 36000,
+      "area_ratio": 0.075
+    }
+  ],
+  "sensitive_detected": [
+    {
+      "label": "FEMALE_BREAST_COVERED",
+      "confidence": 0.71,
+      "bbox": {"x": 260, "y": 110, "width": 180, "height": 160},
+      "area_pixels": 28800,
+      "area_ratio": 0.060
     }
   ]
 }
@@ -81,86 +195,63 @@ Exactly one of `image_url` or `image_path` must be provided. Providing neither r
 | Field | Type | Description |
 |---|---|---|
 | `photo_id` | string | Echoed from the request. |
-| `is_safe` | bool | `true` if no safety test was triggered. `false` if always-block or area threshold was exceeded. |
-| `detections` | array | Detections that passed the confidence filter, regardless of whether they contributed to an unsafe verdict. May be empty. |
-| `detections[].label` | string | NudeNet category label (see [Concepts](../1-concepts/README.md)). |
-| `detections[].confidence` | float | Detection confidence `0.0–1.0`. |
-| `detections[].bbox` | object | Bounding box in absolute pixels: top-left `(x, y)`, `width`, `height`. |
-| `detections[].area_ratio` | float | `(bbox_width × bbox_height) / (image_width × image_height)` — fraction of the image covered by this detection. |
+| `status` | string | Always `"success"` for successful detections. |
+| `should_block` | bool | `true` if any detection matched the block tier. |
+| `should_review` | bool | `true` if any detection matched the review tier. |
+| `is_sensitive` | bool | `true` if any detection matched the sensitive tier. |
+| `block_detected` | array | Detections that triggered the block tier. Empty if `should_block` is `false`. |
+| `review_detected` | array | Detections that triggered the review tier. |
+| `sensitive_detected` | array | Detections that triggered the sensitive tier. |
 
-**Response `403 Forbidden`**
+Each detection object:
 
-Missing or invalid `X-API-Key`.
+| Field | Type | Description |
+|---|---|---|
+| `label` | string | NudeNet label (see [Concepts](../1-concepts/README.md)). |
+| `confidence` | float | Detection confidence `0.0–1.0`. |
+| `bbox.x` | int | Left edge of the bounding box in pixels. |
+| `bbox.y` | int | Top edge of the bounding box in pixels. |
+| `bbox.width` | int | Bounding box width in pixels. |
+| `bbox.height` | int | Bounding box height in pixels. |
+| `area_pixels` | int | `width × height` in raw pixels. |
+| `area_ratio` | float | `area_pixels / (image_width × image_height)` — fraction of the image covered. |
+
+### Error payload
+
+Sent when inference fails (corrupt file, unexpected error, etc.).
 
 ```json
-{"detail": "Invalid API key"}
+{
+  "photo_id": "string",
+  "status": "error",
+  "error_code": "internal_error",
+  "message": "NSFW detection pipeline failed"
+}
 ```
 
-**Response `422 Unprocessable Entity`**
-
-Validation error (e.g. neither `image_url` nor `image_path` provided, or the image could not be decoded).
-
-```json
-{"detail": "Image could not be processed: <reason>"}
-```
-
----
-
-## Error handling
-
-| Status | Cause |
+| `error_code` | Cause |
 |---|---|
-| `403` | Missing or incorrect `X-API-Key` header |
-| `422` | Request body validation failure or image processing error |
-| `500` | Unexpected server error (check service logs) |
+| `internal_error` | Unhandled exception during detection. Check service logs. |
+| `corrupt_file` | The image file could not be decoded by Pillow or NudeNet. |
 
 ---
 
-## Example
+## Example — submit a job
 
 ```bash
 curl -X POST http://localhost:8000/api/nsfw/detect \
   -H "Content-Type: application/json" \
   -H "X-API-Key: change-me" \
-  -d '{
-    "photo_id": "photo-abc-123",
-    "image_url": "https://example.com/uploads/photo.jpg"
-  }'
+  -d '{"photo_id": "42", "photo_path": "2024/01/photo.jpg"}'
 ```
 
-Response (safe image):
+Response:
 
-```json
-{
-  "photo_id": "photo-abc-123",
-  "is_safe": true,
-  "detections": [
-    {
-      "label": "FEMALE_FACE",
-      "confidence": 0.92,
-      "bbox": {"x": 230, "y": 45, "width": 180, "height": 200},
-      "area_ratio": 0.015
-    }
-  ]
-}
+```
+HTTP/1.1 202 Accepted
 ```
 
-Response (unsafe image):
-
-```json
-{
-  "photo_id": "photo-xyz-456",
-  "is_safe": false,
-  "detections": [
-    {
-      "label": "FEMALE_GENITALIA_EXPOSED",
-      "confidence": 0.87,
-      "bbox": {"x": 120, "y": 200, "width": 300, "height": 280},
-      "area_ratio": 0.036
-    }
-  ]
-}
-```
+The callback will arrive at `{VISION_NSFW_LYCHEE_API_URL}/api/v2/NsfwDetection/results` once detection completes.
 
 ---
 

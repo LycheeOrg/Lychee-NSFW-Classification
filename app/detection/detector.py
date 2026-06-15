@@ -1,17 +1,15 @@
+from __future__ import annotations
+
 import os
 import tempfile
+from typing import TYPE_CHECKING
 
 import httpx
 from nudenet import NudeDetector
 from PIL import Image
 
-from app.config import settings
-
-# Parts that are always considered unsafe regardless of area ratio
-_ALWAYS_BLOCK = frozenset({"ANUS_EXPOSED", "MALE_GENITALIA_EXPOSED"})
-
-# Parts that are unsafe only when they cover enough of the image
-_UNSAFE_PARTS = frozenset({"FEMALE_GENITALIA_EXPOSED", "ANUS_EXPOSED", "MALE_GENITALIA_EXPOSED"})
+if TYPE_CHECKING:
+    from app.config import AppSettings, LabelSetConfig
 
 _detector: NudeDetector | None = None
 
@@ -56,51 +54,92 @@ def detect_from_url(image_url: str) -> tuple[list[dict], int, int]:
         os.unlink(tmp_path)
 
 
-def classify(raw_detections: list[dict], image_width: int, image_height: int) -> tuple[bool, list[dict]]:
-    """
-    Filter detections by confidence, compute area_ratio per detection, and
-    determine whether the image is unsafe.
+def _resolve(label_val: float | None, set_val: float | None, global_val: float) -> float:
+    """Resolve effective threshold using the priority: label → set → global."""
+    if label_val is not None:
+        return label_val
+    if set_val is not None:
+        return set_val
+    return global_val
 
-    Returns (is_safe, detections) where detections is a list of dicts ready
-    for the DetectResponse schema.
+
+def _check_set(
+    label: str,
+    confidence: float,
+    area_ratio: float,
+    set_cfg: LabelSetConfig,
+    global_conf: float,
+    global_area: float,
+) -> bool:
+    lt = set_cfg.label_thresholds.get(label)
+    eff_conf = _resolve(lt.confidence if lt else None, set_cfg.confidence, global_conf)
+    eff_area = _resolve(lt.area_ratio if lt else None, set_cfg.area_ratio, global_area)
+    return confidence >= eff_conf and area_ratio >= eff_area
+
+
+def classify(
+    raw_detections: list[dict],
+    image_width: int,
+    image_height: int,
+    settings: AppSettings,
+) -> dict:
+    """Filter detections by per-tier thresholds and classify into block/review/sensitive.
+
+    Threshold resolution per detection per tier (highest priority first):
+      label_thresholds[label].confidence → set.confidence → settings.confidence_threshold
+      label_thresholds[label].area_ratio → set.area_ratio → settings.area_ratio_threshold
+
+    Returns a dict with should_block, should_review, is_sensitive flags and the
+    corresponding detected-part lists, ready for the DetectCallbackPayload schema.
     """
     total_area = image_width * image_height
-    detections = []
-    unsafe_area = 0.0
-    always_blocked = False
+    global_conf = settings.confidence_threshold
+    global_area = settings.area_ratio_threshold
+
+    block_set = set(settings.block.labels)
+    review_set = set(settings.review.labels)
+    sensitive_set = set(settings.sensitive.labels)
+
+    block_detected: list[dict] = []
+    review_detected: list[dict] = []
+    sensitive_detected: list[dict] = []
 
     for d in raw_detections:
         label: str = d["class"]
         confidence: float = d["score"]
         box: list = d["box"]  # [x, y, width, height]
 
-        if confidence < settings.confidence_threshold:
-            continue
+        det_width, det_height = int(box[2]), int(box[3])
+        area_pixels = det_width * det_height
+        area_ratio = area_pixels / total_area
 
-        det_width, det_height = box[2], box[3]
-        area = det_width * det_height
-        area_ratio = area / total_area
+        det = {
+            "label": label,
+            "confidence": confidence,
+            "bbox": {
+                "x": int(box[0]),
+                "y": int(box[1]),
+                "width": det_width,
+                "height": det_height,
+            },
+            "area_pixels": area_pixels,
+            "area_ratio": area_ratio,
+        }
 
-        detections.append(
-            {
-                "label": label,
-                "confidence": confidence,
-                "bbox": {
-                    "x": box[0],
-                    "y": box[1],
-                    "width": det_width,
-                    "height": det_height,
-                },
-                "area_ratio": area_ratio,
-            }
-        )
+        if label in block_set and _check_set(label, confidence, area_ratio, settings.block, global_conf, global_area):
+            block_detected.append(det)
+        if label in review_set and _check_set(label, confidence, area_ratio, settings.review, global_conf, global_area):
+            review_detected.append(det)
+        if label in sensitive_set and _check_set(
+            label, confidence, area_ratio, settings.sensitive, global_conf, global_area
+        ):
+            sensitive_detected.append(det)
 
-        if label in _ALWAYS_BLOCK and confidence > settings.confidence_banned_threshold:
-            always_blocked = True
-
-        if label in _UNSAFE_PARTS and confidence > settings.unsafe_confidence_threshold:
-            unsafe_area += area
-
-    area_unsafe = (unsafe_area / total_area) > settings.unsafe_area_ratio_threshold
-    is_safe = not always_blocked and not area_unsafe
-    return is_safe, detections
+    return {
+        "should_block": bool(block_detected),
+        "should_review": bool(review_detected),
+        "is_sensitive": bool(sensitive_detected),
+        "block_detected": block_detected,
+        "review_detected": review_detected,
+        "sensitive_detected": sensitive_detected,
+    }

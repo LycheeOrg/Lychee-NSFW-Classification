@@ -1,11 +1,31 @@
-from fastapi import HTTPException, Security
-from fastapi.security import APIKeyHeader
+"""FastAPI dependency providers."""
 
-from app.config import settings
+from __future__ import annotations
 
-_api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+from typing import TYPE_CHECKING
+
+from fastapi import Depends, Header, HTTPException, Request
+
+from app.config import AppSettings, get_settings
+
+if TYPE_CHECKING:
+    from app.queue.base import JobQueue
 
 
-async def verify_api_key(api_key: str = Security(_api_key_header)) -> None:
-    if settings.api_key and api_key != settings.api_key:
-        raise HTTPException(status_code=403, detail="Invalid API key")
+async def require_api_key(
+    x_api_key: str | None = Header(None, alias="X-API-Key"),
+    settings: AppSettings = Depends(get_settings),
+) -> None:
+    """FastAPI dependency that validates the ``X-API-Key`` request header.
+
+    Raises:
+        HTTPException(401): If the header is missing or does not match
+            ``VISION_NSFW_API_KEY``.
+    """
+    if x_api_key != settings.api_key:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+
+def get_queue(request: Request) -> JobQueue:
+    """Return the :class:`JobQueue` stored in ``app.state``."""
+    return request.app.state.queue

@@ -2,64 +2,179 @@
 
 _Status: Active | Last updated: June 15, 2026_
 
-All environment variables are read at startup from the environment or from a `.env` file in the working directory. Copy `.env.example` to `.env` and fill in the required values.
+All environment variables are read at startup from the process environment or from a `.env` file in the working directory. Copy `.env.example` to `.env` and fill in the required values.
+
+All variables use the `VISION_NSFW_` prefix. Nested tier configs support `__`-delimited sub-keys (see [Tier configuration](#tier-configuration) below).
 
 ---
 
-## Authentication
+## Required
+
+| Variable | Description |
+|---|---|
+| `VISION_NSFW_API_KEY` | Shared secret validated on inbound requests via the `X-API-Key` header and sent on outbound callbacks to Lychee. Must match `AI_VISION_NSFW_API_KEY` in Lychee's `.env`. **Do not leave empty in production.** |
+| `VISION_NSFW_LYCHEE_API_URL` | Lychee base URL for callbacks, no trailing slash. Example: `https://lychee.example.com`. |
+
+---
+
+## Connectivity
 
 | Variable | Default | Description |
 |---|---|---|
-| `VISION_NSFW_API_KEY` | _(empty)_ | Shared secret validated on inbound requests via the `X-API-Key` header. When empty, authentication is disabled — **do not leave empty in production**. |
+| `VISION_NSFW_VERIFY_SSL` | `true` | Verify SSL certificates on outbound callbacks. Set to `false` for development with self-signed certificates. **Do not disable in production.** |
+| `VISION_NSFW_SKIP_LYCHEE_CHECK` | `false` | Skip the Lychee connectivity check at startup. Useful when Lychee is not yet reachable. |
 
 ---
 
-## Lychee connectivity
+## Photo volume
 
 | Variable | Default | Description |
 |---|---|---|
-| `VISION_NSFW_LYCHEE_URL` | _(empty)_ | Base URL of the Lychee instance, no trailing slash. Used when the service needs to call back to Lychee (e.g. to report errors). Example: `https://lychee.example.com`. |
-| `VISION_NSFW_LYCHEE_API_KEY` | _(empty)_ | API key sent on outbound requests to Lychee. Must match the key configured in Lychee. |
+| `VISION_NSFW_PHOTOS_PATH` | `/data/photos` | Mount point for the shared Docker volume containing Lychee photos. `photo_path` values in requests are validated to reside within this root (path-traversal protection). |
 
 ---
 
-## Detection thresholds
+## Classification — preset
 
 | Variable | Default | Description |
 |---|---|---|
-| `VISION_NSFW_CONFIDENCE_THRESHOLD` | `0.1` | Minimum NudeNet confidence score (`0.0–1.0`) for a detection to be included in the response and to participate in safety tests. Detections below this value are silently discarded. |
-| `VISION_NSFW_CONFIDENCE_BANNED_THRESHOLD` | `0.05` | Minimum confidence for an always-block detection to trigger an unsafe verdict. Intentionally lower than `VISION_NSFW_CONFIDENCE_THRESHOLD` so that always-block categories are not missed. |
-| `VISION_NSFW_UNSAFE_CONFIDENCE_THRESHOLD` | `0.3` | Minimum confidence for a detection to contribute its area to the unsafe-area accumulator. |
-| `VISION_NSFW_UNSAFE_AREA_RATIO_THRESHOLD` | `0.02` | Fraction of image area (`0.0–1.0`) that unsafe detections must collectively cover to trigger an unsafe verdict. `0.02` = 2% of the image. Set to `0.0` to flag any unsafe detection regardless of area. |
+| `VISION_NSFW_PRESET` | _(none)_ | Load a named preset as the default for block / review / sensitive. Valid values: `strict`, `moderation`, `nude_female`, `permissive`, `social_media`. Explicit tier settings override the preset. |
 
-See [Tune Detection Thresholds](../2-how-to/tune-thresholds.md) for guidance on adjusting these values.
+See [Choose a preset](../2-how-to/choose-a-preset.md) for a description of each preset.
 
 ---
 
-## Always-block categories
+## Classification — global thresholds
 
-The following NudeNet labels always produce `is_safe: false` when their confidence exceeds `VISION_NSFW_CONFIDENCE_BANNED_THRESHOLD`, regardless of image area covered:
+These values are used as fallbacks when no tier-level or label-level threshold is configured.
 
-- `ANUS_EXPOSED`
-- `MALE_GENITALIA_EXPOSED`
+| Variable | Default | Description |
+|---|---|---|
+| `VISION_NSFW_CONFIDENCE_THRESHOLD` | `0.1` | Minimum NudeNet confidence score (`0.0–1.0`) for a detection to trigger any tier. |
+| `VISION_NSFW_AREA_RATIO_THRESHOLD` | `0.0` | Minimum fraction of the image area (`0.0–1.0`) a detection must cover to trigger any tier. `0.0` = no area filter. |
 
-These are hardcoded and cannot be changed via configuration. All other sensitive categories are governed by the area-based test.
+---
+
+## Classification — tier configuration
+
+Each of the three tiers (block, review, sensitive) is configured as a JSON object with the following fields:
+
+Tiers are **independent** — the same label can appear in multiple tiers simultaneously, each with its own threshold. A common pattern is to block when a detection covers a large fraction of the image and only review when it is smaller. See [Configure classification tiers](../2-how-to/tune-thresholds.md#same-label-in-multiple-tiers-graduated-response) for an example.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `labels` | `list[str]` | _(see defaults below)_ | NudeNet labels that belong to this tier. The same label may also appear in other tiers; each tier evaluates it independently. |
+| `confidence` | `float \| null` | `null` | Confidence threshold for this tier. `null` falls back to the global `confidence_threshold`. |
+| `area_ratio` | `float \| null` | `null` | Area-ratio threshold for this tier. `null` falls back to the global `area_ratio_threshold`. |
+| `label_thresholds` | `object` | `{}` | Per-label overrides. Keys must be labels listed in `labels`. Each value is `{"confidence": float \| null, "area_ratio": float \| null}`. |
+
+### Setting a tier
+
+**As a JSON object** (sets the entire tier at once):
+
+```dotenv
+VISION_NSFW_BLOCK='{"labels": ["FEMALE_GENITALIA_EXPOSED", "ANUS_EXPOSED"], "confidence": 0.7}'
+```
+
+**Using `__` sub-keys** (set individual fields without replacing the whole tier):
+
+```dotenv
+VISION_NSFW_BLOCK__CONFIDENCE=0.7
+VISION_NSFW_BLOCK__AREA_RATIO=0.01
+VISION_NSFW_BLOCK__LABELS='["FEMALE_GENITALIA_EXPOSED", "ANUS_EXPOSED"]'
+VISION_NSFW_BLOCK__LABEL_THRESHOLDS='{"ANUS_EXPOSED": {"confidence": 0.1}}'
+```
+
+### `VISION_NSFW_BLOCK`
+
+Controls which detections set `should_block: true` in the callback.
+
+**Default labels:** `FEMALE_GENITALIA_EXPOSED`, `MALE_GENITALIA_EXPOSED`, `ANUS_EXPOSED`
+
+### `VISION_NSFW_REVIEW`
+
+Controls which detections set `should_review: true` in the callback.
+
+**Default labels:** `BUTTOCKS_EXPOSED`, `FEMALE_BREAST_EXPOSED`
+
+### `VISION_NSFW_SENSITIVE`
+
+Controls which detections set `is_sensitive: true` in the callback.
+
+**Default labels:** `FEMALE_BREAST_COVERED`, `FEMALE_GENITALIA_COVERED`, `ANUS_COVERED`, `BUTTOCKS_COVERED`, `BELLY_EXPOSED`
+
+### Valid NudeNet labels
+
+Only these labels are accepted. Using an unknown label raises a startup error.
+
+```
+ANUS_COVERED          ANUS_EXPOSED
+ARMPITS_COVERED       ARMPITS_EXPOSED
+BELLY_COVERED         BELLY_EXPOSED
+BUTTOCKS_COVERED      BUTTOCKS_EXPOSED
+FACE_FEMALE           FACE_MALE
+FEET_COVERED          FEET_EXPOSED
+FEMALE_BREAST_COVERED FEMALE_BREAST_EXPOSED
+FEMALE_GENITALIA_COVERED FEMALE_GENITALIA_EXPOSED
+MALE_BREAST_EXPOSED   MALE_GENITALIA_EXPOSED
+```
+
+---
+
+## Job queue
+
+| Variable | Default | Description |
+|---|---|---|
+| `VISION_NSFW_QUEUE_BACKEND` | `database` | Queue backend: `database` (SQLite) or `redis`. |
+| `VISION_NSFW_QUEUE_MAX_SIZE` | `0` | Maximum pending jobs. `0` = unlimited. Requests beyond this limit receive `429 Too Many Requests`. |
+| `VISION_NSFW_STORAGE_PATH` | `/data/queue` | Directory for the SQLite queue database (used when `queue_backend=database`). |
+
+### Redis (when `queue_backend=redis`)
+
+| Variable | Default | Description |
+|---|---|---|
+| `VISION_NSFW_REDIS_HOST` | `localhost` | Redis host. |
+| `VISION_NSFW_REDIS_PORT` | `6379` | Redis port. |
+| `VISION_NSFW_REDIS_PASSWORD` | _(empty)_ | Redis password. Leave empty for no authentication. |
+| `VISION_NSFW_REDIS_DB` | `0` | Redis logical database index. |
+
+---
+
+## Concurrency
+
+| Variable | Default | Description |
+|---|---|---|
+| `VISION_NSFW_THREAD_POOL_SIZE` | `1` | Number of threads for CPU-bound NudeNet inference. Increase only if NudeNet is confirmed thread-safe in your version. |
+| `VISION_NSFW_WORKERS` | `1` | Number of Uvicorn worker processes. For higher throughput, prefer multiple container replicas instead. |
+
+---
+
+## Logging
+
+| Variable | Default | Description |
+|---|---|---|
+| `VISION_NSFW_LOG_LEVEL` | `info` | Log level: `debug`, `info`, `warning`, `error`, `critical`. |
 
 ---
 
 ## Example `.env`
 
 ```dotenv
+# Required
 VISION_NSFW_API_KEY=change-me
+VISION_NSFW_LYCHEE_API_URL=https://lychee.example.com
 
-VISION_NSFW_LYCHEE_URL=https://lychee.example.com
-VISION_NSFW_LYCHEE_API_KEY=
+# Use the social_media preset as a baseline
+VISION_NSFW_PRESET=social_media
 
-# Detection thresholds
-VISION_NSFW_CONFIDENCE_THRESHOLD=0.1
-VISION_NSFW_CONFIDENCE_BANNED_THRESHOLD=0.05
-VISION_NSFW_UNSAFE_CONFIDENCE_THRESHOLD=0.3
-VISION_NSFW_UNSAFE_AREA_RATIO_THRESHOLD=0.02
+# Override: also flag bare male chest for review
+VISION_NSFW_REVIEW__LABELS='["BUTTOCKS_EXPOSED", "MALE_BREAST_EXPOSED", "FEMALE_BREAST_EXPOSED"]'
+
+# Require higher confidence before anything gets blocked
+VISION_NSFW_BLOCK__CONFIDENCE=0.7
+
+# But always block anus even at low confidence
+VISION_NSFW_BLOCK__LABEL_THRESHOLDS='{"ANUS_EXPOSED": {"confidence": 0.1}}'
 ```
 
 ---

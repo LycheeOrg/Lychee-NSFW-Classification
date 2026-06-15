@@ -18,7 +18,7 @@ NudeNet's full label set:
 
 | Label | Description |
 |---|---|
-| `FEMALE_FACE` | Female face |
+| `FACE_FEMALE` | Female face |
 | `FACE_MALE` | Male face |
 | `FEMALE_BREAST_COVERED` | Clothed female breast |
 | `FEMALE_BREAST_EXPOSED` | Bare female breast |
@@ -37,129 +37,167 @@ NudeNet's full label set:
 | `FEET_COVERED` | Clothed feet |
 | `FEET_EXPOSED` | Bare feet |
 
-Not all labels trigger an unsafe verdict. The classification logic below determines which ones matter and how.
+---
+
+## Three-tier classification
+
+Raw NudeNet detections are classified into three independent tiers. Each tier has its own configurable set of labels and thresholds.
+
+```
+NudeNet detections
+       │
+       ▼
+┌─────────────┐    should_block ──► block_detected[ ]
+│   block     │
+└─────────────┘
+       │
+       ▼
+┌─────────────┐    should_review ──► review_detected[ ]
+│   review    │
+└─────────────┘
+       │
+       ▼
+┌─────────────┐    is_sensitive ──► sensitive_detected[ ]
+│  sensitive  │
+└─────────────┘
+```
+
+All three tiers evaluate every detection independently — a single detection can appear in more than one tier if its label is listed in multiple sets.
+
+### Tier meanings
+
+| Tier | Callback field | Intended action |
+|---|---|---|
+| **block** | `should_block: true` | Hide the photo from all viewers. |
+| **review** | `should_review: true` | Hold for human moderation before publishing. |
+| **sensitive** | `is_sensitive: true` | Mark and restrict, but do not hide outright. |
 
 ---
 
-## Classification logic
+## Threshold resolution
 
-Raw NudeNet detections pass through two independent safety tests. The image is `is_safe = false` if **either** test triggers.
+Each detection must pass **two** thresholds to appear in a tier's detected list:
 
-### Step 1 — confidence filter
+1. **Confidence** — the NudeNet `score` must be ≥ the effective confidence threshold.
+2. **Area ratio** — `(bbox_width × bbox_height) / (image_width × image_height)` must be ≥ the effective area-ratio threshold. The default global value is `0.0`, which disables the area filter.
 
-Any detection with `score < VISION_NSFW_CONFIDENCE_THRESHOLD` (default `0.1`) is discarded before further processing. This removes low-confidence noise.
-
-### Step 2 — always-block test
-
-Some categories are considered unsafe regardless of how much of the image they cover. If any detection in this set has `score > VISION_NSFW_CONFIDENCE_BANNED_THRESHOLD` (default `0.05`), the image is immediately marked unsafe:
+Thresholds are resolved per-detection, per-tier, using a three-level priority chain:
 
 ```
-ALWAYS_BLOCK = { ANUS_EXPOSED, MALE_GENITALIA_EXPOSED }
+label_thresholds[label].confidence
+        │ if None
+        ▼
+  set.confidence
+        │ if None
+        ▼
+settings.confidence_threshold          ← global fallback (default 0.1)
 ```
 
-The threshold here is intentionally low (`0.05`) so these categories are not missed even when the model is uncertain.
-
-### Step 3 — area-based test
-
-Other sensitive categories are only flagged when they occupy a meaningful portion of the image. For each detection in the area-sensitive set:
-
-```
-UNSAFE_PARTS = { FEMALE_GENITALIA_EXPOSED, ANUS_EXPOSED, MALE_GENITALIA_EXPOSED }
-```
-
-If its `score > VISION_NSFW_UNSAFE_CONFIDENCE_THRESHOLD` (default `0.3`), its pixel area (`width × height`) is added to a running `unsafe_area` total. If:
-
-```
-unsafe_area / (image_width × image_height) > VISION_NSFW_UNSAFE_AREA_RATIO_THRESHOLD
-```
-
-(default `0.02`, i.e. 2% of the image) then the image is marked unsafe. This prevents false positives where a sensitive label appears on a tiny incidental region.
-
-### Final verdict
-
-```python
-is_safe = not always_blocked and not area_unsafe
-```
-
-Both conditions must be absent for the image to be considered safe.
+The same chain applies to `area_ratio`. This means you can set a strict default for the whole block tier, then loosen it for specific low-risk labels within that tier.
 
 ---
 
-## Bounding box coordinates
+## Bounding box and area fields
 
-Bounding boxes in the API response are reported in **absolute pixels** as they come from NudeNet:
+Every detection in the callback payload includes:
 
 ```json
-"bbox": {
-  "x": 120,
-  "y": 45,
-  "width": 200,
-  "height": 180
+{
+  "label": "FEMALE_GENITALIA_EXPOSED",
+  "confidence": 0.87,
+  "bbox": {"x": 120, "y": 45, "width": 300, "height": 280},
+  "area_pixels": 84000,
+  "area_ratio": 0.175
 }
 ```
 
-`x` and `y` are the top-left corner. `width` and `height` are the box dimensions. All values are in the pixel space of the original image.
-
-The `area_ratio` field in the response is computed as `(width × height) / (image_width × image_height)` — a normalised fraction showing how much of the image the detection covers.
+- `bbox.x` / `bbox.y` — top-left corner of the bounding box in absolute pixels.
+- `bbox.width` / `bbox.height` — box dimensions in pixels.
+- `area_pixels` — `width × height` in raw pixels.
+- `area_ratio` — `area_pixels / (image_width × image_height)`: the fraction of the image covered.
 
 ---
 
-## Request and response model
+## Request and callback model
 
 ### Request (`POST /api/nsfw/detect`)
 
 ```json
 {
-  "photo_id": "abc-123",
-  "image_url": "https://lychee.example.com/storage/img.jpg"
+  "photo_id": "42",
+  "photo_path": "2024/01/photo.jpg"
 }
 ```
 
-or
+`photo_path` is relative to the shared volume root (`VISION_NSFW_PHOTOS_PATH`, default `/data/photos`). The service validates that the resolved path stays within that root before reading the file.
+
+The endpoint returns **`202 Accepted`** immediately. Detection runs in the background.
+
+### Callback — success
+
+The result is POSTed to `{VISION_NSFW_LYCHEE_API_URL}/api/v2/NsfwDetection/results`:
 
 ```json
 {
-  "photo_id": "abc-123",
-  "image_path": "/path/to/image.jpg"
-}
-```
-
-Exactly one of `image_url` or `image_path` must be provided.
-
-### Response
-
-```json
-{
-  "photo_id": "abc-123",
-  "is_safe": false,
-  "detections": [
+  "photo_id": "42",
+  "status": "success",
+  "should_block": false,
+  "should_review": true,
+  "is_sensitive": true,
+  "block_detected": [],
+  "review_detected": [
     {
-      "label": "FEMALE_GENITALIA_EXPOSED",
-      "confidence": 0.87,
-      "bbox": { "x": 120, "y": 45, "width": 200, "height": 180 },
-      "area_ratio": 0.031
+      "label": "FEMALE_BREAST_EXPOSED",
+      "confidence": 0.83,
+      "bbox": {"x": 50, "y": 100, "width": 200, "height": 180},
+      "area_pixels": 36000,
+      "area_ratio": 0.075
+    }
+  ],
+  "sensitive_detected": [
+    {
+      "label": "FEMALE_BREAST_COVERED",
+      "confidence": 0.71,
+      "bbox": {"x": 260, "y": 110, "width": 180, "height": 160},
+      "area_pixels": 28800,
+      "area_ratio": 0.060
     }
   ]
 }
 ```
 
-`detections` contains only the labels that passed the confidence filter. It may be empty even when `is_safe` is `false` (if the always-block test triggers on a detection that was itself above the banned threshold but below the general confidence threshold — though in practice this is unlikely given the threshold ordering).
+### Callback — error
+
+```json
+{
+  "photo_id": "42",
+  "status": "error",
+  "error_code": "corrupt_file",
+  "message": "Image could not be decoded"
+}
+```
 
 ---
 
-## Image fetching
+## Presets
 
-When `image_url` is provided, the service downloads the image using `httpx` with a 30-second timeout, writes it to a temporary file, and passes the path to NudeNet. The temporary file is deleted after inference regardless of success or failure.
+Named presets provide curated default label sets for common use cases without requiring manual label configuration. Available presets:
 
-Supported content types: JPEG, PNG, WebP. The file extension is inferred from the `Content-Type` response header.
+| Name | Description |
+|---|---|
+| `strict` | Block all exposed nudity; review covered intimate parts. |
+| `moderation` | Nothing blocked; all nudity sent for human review. |
+| `nude_female` | Block male genitalia/anus; moderate female genitalia; rest sensitive. |
+| `permissive` | Only block genitalia and anus; partial nudity is sensitive. |
+| `social_media` | Block female breasts and all genitalia; review buttocks. |
 
-When `image_path` is provided, the file is read directly from disk. The path is not validated against any prefix — ensure Lychee only sends paths it controls.
+Set `VISION_NSFW_PRESET=<name>` to activate a preset. See [Choose a preset](../2-how-to/choose-a-preset.md).
 
 ---
 
 ## Thread safety
 
-NudeNet inference is CPU-bound. The service loads the `NudeDetector` lazily on the first request and reuses it for subsequent requests. Because NudeNet is not thread-safe, the service should be run with a single Uvicorn worker in production. If you need parallelism, run multiple container replicas behind a load balancer rather than increasing the worker count.
+NudeNet inference is CPU-bound. The `NudeDetector` is loaded lazily on the first request and reused for all subsequent requests. Because NudeNet is not thread-safe, the `ThreadPoolExecutor` is intentionally sized to one thread by default (`VISION_NSFW_THREAD_POOL_SIZE=1`). For higher throughput, run multiple container replicas behind a load balancer.
 
 ---
 
