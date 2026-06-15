@@ -6,12 +6,12 @@ readme = "README.md"
 license = { text = "AGPL-3.0" }
 requires-python = ">=3.13,<3.14"
 dependencies = [
-    "fastapi>=0.115.0",
-    "uvicorn[standard]>=0.30.0",
+    "fastapi>=0.137.1",
+    "uvicorn[standard]>=0.49.0",
     "nudenet>=3.4.2",
-    "pillow>=10.0.0",
-    "httpx>=0.27.0",
-    "pydantic-settings>=2.0.0",
+    "pillow>=12.2.0",
+    "httpx>=0.28.1",
+    "pydantic-settings>=2.14.1",
 ]
 
 [dependency-groups]
