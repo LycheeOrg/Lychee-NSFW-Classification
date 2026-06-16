@@ -182,7 +182,7 @@ Interactive docs: `http://localhost:8000/docs`
 
 The endpoint returns **`202 Accepted`** immediately. Results arrive via callback.
 
-### Callback payload (POSTed to Lychee)
+### Callback payload (POSTed to `{VISION_NSFW_LYCHEE_API_URL}/api/v2/NsfwDetection/results`)
 
 ```json
 {
@@ -191,6 +191,22 @@ The endpoint returns **`202 Accepted`** immediately. Results arrive via callback
   "should_block": true,
   "should_review": false,
   "is_sensitive": true,
+  "all_detected": [
+    {
+      "label": "FEMALE_GENITALIA_EXPOSED",
+      "confidence": 0.91,
+      "bbox": {"x": 120, "y": 200, "width": 300, "height": 280},
+      "area_pixels": 84000,
+      "area_ratio": 0.175
+    },
+    {
+      "label": "FEMALE_BREAST_COVERED",
+      "confidence": 0.74,
+      "bbox": {"x": 50, "y": 80, "width": 150, "height": 140},
+      "area_pixels": 21000,
+      "area_ratio": 0.044
+    }
+  ],
   "block_detected": [
     {
       "label": "FEMALE_GENITALIA_EXPOSED",
