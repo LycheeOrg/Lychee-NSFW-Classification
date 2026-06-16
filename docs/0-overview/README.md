@@ -18,37 +18,43 @@ Lychee itself has no built-in content moderation. This service fills that gap: w
 Lychee                       NSFW Service
   │                               │
   │  POST /api/nsfw/detect        │
-  │  { photo_id, image_url }      │
+  │  { photo_id, photo_path }     │
   │ ──────────────────────────► │
-  │                               │  1. Fetch image
+  │  202 Accepted                 │
+  │ ◄────────────────────────── │
+  │                               │  1. Read image from shared volume
   │                               │  2. Run NudeNet inference
   │                               │  3. Apply classification logic
-  │                               │  4. Build response
-  │  200 OK                       │
-  │  { is_safe, detections }      │
+  │                               │  4. POST callback to Lychee
+  │                               │
+  │  POST /api/v2/NsfwDetection/results
+  │  { photo_id, should_block, … }│
   │ ◄────────────────────────── │
 ```
 
-Detection is **synchronous**: Lychee sends a request and waits for the result. The classification logic runs entirely inside the single HTTP round-trip — there is no callback or polling model.
+Detection is **asynchronous**: Lychee sends a request and receives `202 Accepted` immediately. The service enqueues the job and a background worker runs NudeNet inference. Results are POSTed back to Lychee's callback endpoint (`/api/v2/NsfwDetection/results`) once detection completes.
 
 ---
 
 ## Key design decisions
 
-### Synchronous detection
+### Asynchronous detection with callback
 
-Unlike some AI sidecars that use a job queue and callback flow, this service responds inline. This keeps the integration surface minimal (one endpoint, one request, one response) and is appropriate because NudeNet inference is fast: typically 100–300 ms per image on CPU.
+The service uses a job queue and callback flow. Lychee submits a job and returns immediately; the result arrives asynchronously. This decouples upload latency from inference latency and allows the queue to absorb bursts.
 
-### Stateless
+### Queue-backed processing
 
-The service holds no persistent state. Every request is independent. There is no embedding store, job queue, or database. This simplifies deployment and makes horizontal scaling trivial — run as many replicas as needed behind a load balancer.
+The service maintains a job queue (in-memory or database-backed) that bounds concurrency and provides back-pressure via `429 Too Many Requests` when full. Queue depth and position are queryable via `/api/nsfw/queue`.
 
-### Two-stage classification
+### Three-tier classification
 
-Raw NudeNet detections do not map directly to an `is_safe` verdict. The service applies two independent safety tests:
+Raw NudeNet detections are classified into three independent tiers, each with its own label set and thresholds:
 
-1. **Always-block categories** — certain body parts are never acceptable regardless of image area covered (e.g. exposed male or anal genitalia). A single detection above the banned threshold marks the image unsafe.
-2. **Area-based threshold** — other sensitive categories (e.g. exposed female genitalia) are flagged only when their total detected area exceeds a configurable fraction of the image. This reduces false positives from incidental framing.
+- **block** — hide the photo entirely (`should_block: true`).
+- **review** — queue for human moderation (`should_review: true`).
+- **sensitive** — mark the photo but keep it visible (`is_sensitive: true`).
+
+A photo can match multiple tiers simultaneously. All raw detections (regardless of tier) are included in `all_detected` in the callback payload, which is useful for Lychee-side filtering and threshold tuning.
 
 See [concepts](../1-concepts/README.md) for the full classification logic.
 
@@ -80,4 +86,4 @@ All endpoints except `GET /health` require a shared-secret `X-API-Key` header. W
 
 ---
 
-*Last updated: June 15, 2026*
+*Last updated: June 16, 2026*

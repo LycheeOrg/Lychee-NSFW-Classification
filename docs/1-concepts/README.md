@@ -44,25 +44,22 @@ NudeNet's full label set:
 Raw NudeNet detections are classified into three independent tiers. Each tier has its own configurable set of labels and thresholds.
 
 ```
-NudeNet detections
-       │
-       ▼
-┌─────────────┐    should_block ──► block_detected[ ]
-│   block     │
-└─────────────┘
-       │
-       ▼
-┌─────────────┐    should_review ──► review_detected[ ]
-│   review    │
-└─────────────┘
-       │
-       ▼
-┌─────────────┐    is_sensitive ──► sensitive_detected[ ]
-│  sensitive  │
-└─────────────┘
+                              ┌───────────────────────────────────► all_detected[ ]
+                              │
+                              │  ┌─────────────┐
+                              ├─►│   block     │── should_block ──► block_detected[ ]
+                              │  └─────────────┘
+NudeNet detections ── each ───┤
+   detection                  │  ┌─────────────┐
+                              ├─►│   review    │── should_review ─► review_detected[ ]
+                              │  └─────────────┘
+                              │
+                              │  ┌─────────────┐
+                              └─►│  sensitive  │── is_sensitive ──► sensitive_detected[ ]
+                                 └─────────────┘
 ```
 
-All three tiers evaluate every detection independently — a single detection can appear in more than one tier if its label is listed in multiple sets.
+Every detection is evaluated against all three tiers independently — tiers are **not** mutually exclusive. A single detection can appear in `block_detected`, `review_detected`, and `sensitive_detected` simultaneously if its label is listed in multiple tier configurations. `all_detected` always contains every detection that passed `VISION_NSFW_CONFIDENCE_THRESHOLD`, regardless of tier membership, and is useful for Lychee-side filtering and threshold tuning.
 
 ### Tier meanings
 
@@ -144,6 +141,22 @@ The result is POSTed to `{VISION_NSFW_LYCHEE_API_URL}/api/v2/NsfwDetection/resul
   "should_block": false,
   "should_review": true,
   "is_sensitive": true,
+  "all_detected": [
+    {
+      "label": "FEMALE_BREAST_EXPOSED",
+      "confidence": 0.83,
+      "bbox": {"x": 50, "y": 100, "width": 200, "height": 180},
+      "area_pixels": 36000,
+      "area_ratio": 0.075
+    },
+    {
+      "label": "FEMALE_BREAST_COVERED",
+      "confidence": 0.71,
+      "bbox": {"x": 260, "y": 110, "width": 180, "height": 160},
+      "area_pixels": 28800,
+      "area_ratio": 0.060
+    }
+  ],
   "block_detected": [],
   "review_detected": [
     {
@@ -201,4 +214,4 @@ NudeNet inference is CPU-bound. The `NudeDetector` is loaded lazily on the first
 
 ---
 
-*Last updated: June 15, 2026*
+*Last updated: June 16, 2026*

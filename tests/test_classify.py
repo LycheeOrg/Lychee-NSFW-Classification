@@ -182,7 +182,7 @@ def test_classify_label_not_in_any_set_ignored() -> None:
     assert result["is_sensitive"] is False
 
 
-def test_classify_label_in_multiple_sets() -> None:
+def test_classify_label_in_block_and_review() -> None:
     raw = [_make_raw("ANUS_EXPOSED", 0.9, [0, 0, 50, 50])]
     result = classify(
         raw,
@@ -197,6 +197,46 @@ def test_classify_label_in_multiple_sets() -> None:
     assert result["should_review"] is True
     assert len(result["block_detected"]) == 1
     assert len(result["review_detected"]) == 1
+
+
+def test_classify_single_detection_in_all_three_tiers() -> None:
+    """Tiers are independent: one detection can trigger block, review, and sensitive simultaneously."""
+    raw = [_make_raw("ANUS_EXPOSED", 0.9, [0, 0, 50, 50])]
+    result = classify(
+        raw,
+        800,
+        600,
+        _make_settings(
+            block=_make_set(["ANUS_EXPOSED"]),
+            review=_make_set(["ANUS_EXPOSED"]),
+            sensitive=_make_set(["ANUS_EXPOSED"]),
+        ),
+    )
+    assert result["should_block"] is True
+    assert result["should_review"] is True
+    assert result["is_sensitive"] is True
+    assert len(result["block_detected"]) == 1
+    assert len(result["review_detected"]) == 1
+    assert len(result["sensitive_detected"]) == 1
+    assert result["block_detected"][0] is result["review_detected"][0] is result["sensitive_detected"][0]
+
+
+def test_classify_block_does_not_prevent_review_or_sensitive() -> None:
+    """Triggering block must not suppress review or sensitive checks on the same detection."""
+    raw = [_make_raw("FEMALE_GENITALIA_EXPOSED", 0.95, [0, 0, 200, 200])]
+    result = classify(
+        raw,
+        800,
+        600,
+        _make_settings(
+            block=_make_set(["FEMALE_GENITALIA_EXPOSED"]),
+            review=_make_set(["FEMALE_GENITALIA_EXPOSED"]),
+            sensitive=_make_set(["FEMALE_GENITALIA_EXPOSED"]),
+        ),
+    )
+    assert result["should_block"] is True
+    assert result["should_review"] is True
+    assert result["is_sensitive"] is True
 
 
 def test_classify_area_pixels_and_ratio_computed() -> None:
