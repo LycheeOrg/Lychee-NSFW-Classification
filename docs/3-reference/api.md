@@ -1,6 +1,6 @@
 # API Reference
 
-_Status: Active | Last updated: June 15, 2026_
+_Status: Active | Last updated: June 22, 2026_
 
 Base path: `/api/nsfw`
 
@@ -36,7 +36,7 @@ Returns the service operational status. No authentication required.
 
 ### `GET /api/nsfw/config`
 
-Returns the active runtime configuration (secrets redacted). Useful for verifying that env vars were applied correctly.
+Returns the active runtime configuration (secrets redacted) and all available preset configurations. Useful for verifying that env vars were applied correctly and for discovering which presets are available.
 
 **Response `200 OK`**
 
@@ -53,9 +53,34 @@ Returns the active runtime configuration (secrets redacted). Useful for verifyin
     "thread_pool_size": "1",
     "verify_ssl": "true",
     "workers": "1"
+  },
+  "presets": {
+    "default": {
+      "name": "default",
+      "description": "Built-in default configuration used when no preset is selected.",
+      "block": {"labels": ["FEMALE_GENITALIA_EXPOSED", "MALE_GENITALIA_EXPOSED", "ANUS_EXPOSED"], "confidence": null, "area_ratio": null, "label_thresholds": {}},
+      "review": {"labels": ["BUTTOCKS_EXPOSED", "FEMALE_BREAST_EXPOSED"], "confidence": null, "area_ratio": null, "label_thresholds": {}},
+      "sensitive": {"labels": ["FEMALE_BREAST_COVERED", "FEMALE_GENITALIA_COVERED", "ANUS_COVERED", "BUTTOCKS_COVERED", "BELLY_EXPOSED"], "confidence": null, "area_ratio": null, "label_thresholds": {}}
+    },
+    "strict": {
+      "name": "strict",
+      "description": "Block all exposed nudity. Covered intimate parts are flagged as sensitive. ...",
+      "block": {"labels": ["BUTTOCKS_EXPOSED", "FEMALE_BREAST_EXPOSED", "..."], "...": "..."},
+      "review": {"labels": ["FEMALE_BREAST_COVERED", "..."], "...": "..."},
+      "sensitive": {"labels": ["BELLY_EXPOSED", "..."], "...": "..."}
+    },
+    "moderation": {"...": "..."},
+    "nude_female": {"...": "..."},
+    "permissive": {"...": "..."},
+    "social_media": {"...": "..."}
   }
 }
 ```
+
+| Field | Type | Description |
+|---|---|---|
+| `config` | object | Current runtime configuration values as strings (with secrets redacted). |
+| `presets` | object | Available preset configurations keyed by name. Always includes `"default"` (the active configuration when no preset is selected) plus all named presets (`strict`, `moderation`, `nude_female`, `permissive`, `social_media`). Each preset includes the full `block`, `review`, and `sensitive` label-set configurations with any per-preset env overrides already applied. |
 
 ---
 
@@ -286,4 +311,4 @@ The callback will arrive at `{VISION_NSFW_LYCHEE_API_URL}/api/v2/NsfwDetection/r
 
 ---
 
-*Last updated: June 15, 2026*
+*Last updated: June 22, 2026*
