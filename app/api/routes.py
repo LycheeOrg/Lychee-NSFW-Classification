@@ -26,6 +26,7 @@ from app.api.schemas import (
     DetectRequest,
     ErrorCallbackPayload,
     HealthResponse,
+    PresetConfigResponse,
     QueuePositionResponse,
     QueueSizeResponse,
     ServiceConfigResponse,
@@ -138,7 +139,31 @@ async def service_config(
     The endpoint is authenticated because it exposes operational details.
     Sensitive values are redacted by ``AppSettings.to_diagnostics_payload``.
     """
-    return ServiceConfigResponse(config=settings.to_diagnostics_payload())
+    from app.config.presets import PRESETS
+
+    presets: dict[str, PresetConfigResponse] = {
+        "default": PresetConfigResponse(
+            name="default",
+            description="Built-in default configuration used when no preset is selected.",
+            block=settings.block,
+            review=settings.review,
+            sensitive=settings.sensitive,
+        ),
+    }
+    for name, preset in PRESETS.items():
+        block, review, sensitive = settings.resolve_preset(name)
+        presets[name] = PresetConfigResponse(
+            name=preset.name,
+            description=preset.description,
+            block=block,
+            review=review,
+            sensitive=sensitive,
+        )
+
+    return ServiceConfigResponse(
+        config=settings.to_diagnostics_payload(),
+        presets=presets,
+    )
 
 
 # ---------------------------------------------------------------------------

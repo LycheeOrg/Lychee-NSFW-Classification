@@ -5,6 +5,8 @@ These models define the contract between the Python service and Lychee (PHP).
 
 from pydantic import BaseModel, Field
 
+from app.config.models import LabelSetConfig
+
 # ---------------------------------------------------------------------------
 # /detect - Lychee -> Python (request)  &  Python -> Lychee (callback)
 # ---------------------------------------------------------------------------
@@ -109,11 +111,24 @@ class HealthResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class PresetConfigResponse(BaseModel):
+    """Summary of a single preset (or the default configuration)."""
+
+    name: str
+    description: str
+    block: LabelSetConfig
+    review: LabelSetConfig
+    sensitive: LabelSetConfig
+
+
 class ServiceConfigResponse(BaseModel):
     """Response body for ``GET /config``."""
 
     config: dict[str, str]
     """Current runtime configuration values as strings (with secrets redacted)."""
+
+    presets: dict[str, PresetConfigResponse]
+    """Available preset configurations keyed by name, including ``"default"``."""
 
 
 # ---------------------------------------------------------------------------

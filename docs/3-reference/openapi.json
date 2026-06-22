@@ -52,7 +52,7 @@
 						"description": "Invalid or inaccessible photo path"
 					},
 					"429": {
-						"description": "Queue is full — try again later"
+						"description": "Queue is full \u2014 try again later"
 					},
 					"422": {
 						"description": "Validation Error",
@@ -230,7 +230,7 @@
 					"queue"
 				],
 				"summary": "Queue Position",
-				"description": "Return the position of a photo in the queue.\n\n- **present** → job is waiting; ``position`` is its 1-based rank among pending jobs.\n  ``position=0`` means the job is currently being processed.\n- **absent** → job is done (404).",
+				"description": "Return the position of a photo in the queue.\n\n- **present** \u2192 job is waiting; ``position`` is its 1-based rank among pending jobs.\n  ``position=0`` means the job is currently being processed.\n- **absent** \u2192 job is done (404).",
 				"operationId": "queue_position_api_nsfw_queue__photo_id__get",
 				"parameters": [
 					{
@@ -346,6 +346,119 @@
 				"title": "HealthResponse",
 				"description": "Response body for ``GET /health``."
 			},
+			"LabelSetConfig": {
+				"properties": {
+					"labels": {
+						"items": {
+							"type": "string"
+						},
+						"type": "array",
+						"title": "Labels",
+						"default": []
+					},
+					"confidence": {
+						"anyOf": [
+							{
+								"type": "number",
+								"maximum": 1.0,
+								"minimum": 0.0
+							},
+							{
+								"type": "null"
+							}
+						],
+						"title": "Confidence"
+					},
+					"area_ratio": {
+						"anyOf": [
+							{
+								"type": "number",
+								"maximum": 1.0,
+								"minimum": 0.0
+							},
+							{
+								"type": "null"
+							}
+						],
+						"title": "Area Ratio"
+					},
+					"label_thresholds": {
+						"additionalProperties": {
+							"$ref": "#/components/schemas/LabelThreshold"
+						},
+						"type": "object",
+						"title": "Label Thresholds",
+						"default": {}
+					}
+				},
+				"type": "object",
+				"title": "LabelSetConfig",
+				"description": "Configuration for one classification tier (block / review / sensitive).\n\nThreshold resolution order (highest priority first):\n  label_thresholds[label].confidence \u2192 confidence \u2192 (global fallback)\n  label_thresholds[label].area_ratio \u2192 area_ratio \u2192 (global fallback)"
+			},
+			"LabelThreshold": {
+				"properties": {
+					"confidence": {
+						"anyOf": [
+							{
+								"type": "number",
+								"maximum": 1.0,
+								"minimum": 0.0
+							},
+							{
+								"type": "null"
+							}
+						],
+						"title": "Confidence"
+					},
+					"area_ratio": {
+						"anyOf": [
+							{
+								"type": "number",
+								"maximum": 1.0,
+								"minimum": 0.0
+							},
+							{
+								"type": "null"
+							}
+						],
+						"title": "Area Ratio"
+					}
+				},
+				"type": "object",
+				"title": "LabelThreshold",
+				"description": "Per-label confidence and area-ratio overrides within a set."
+			},
+			"PresetConfigResponse": {
+				"properties": {
+					"name": {
+						"type": "string",
+						"title": "Name"
+					},
+					"description": {
+						"type": "string",
+						"title": "Description"
+					},
+					"block": {
+						"$ref": "#/components/schemas/LabelSetConfig"
+					},
+					"review": {
+						"$ref": "#/components/schemas/LabelSetConfig"
+					},
+					"sensitive": {
+						"$ref": "#/components/schemas/LabelSetConfig"
+					}
+				},
+				"type": "object",
+				"required": [
+					"name",
+					"description",
+					"block",
+					"review",
+					"sensitive"
+				],
+				"title": "PresetConfigResponse",
+				"description": "Summary of a single preset (or the default configuration)."
+			},
 			"QueuePositionResponse": {
 				"properties": {
 					"photo_id": {
@@ -387,11 +500,19 @@
 						},
 						"type": "object",
 						"title": "Config"
+					},
+					"presets": {
+						"additionalProperties": {
+							"$ref": "#/components/schemas/PresetConfigResponse"
+						},
+						"type": "object",
+						"title": "Presets"
 					}
 				},
 				"type": "object",
 				"required": [
-					"config"
+					"config",
+					"presets"
 				],
 				"title": "ServiceConfigResponse",
 				"description": "Response body for ``GET /config``."
