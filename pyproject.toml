@@ -18,13 +18,13 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "ruff>=0.15.18",
-    "httpx2>=2.4.0",
-    "ty>=0.0.51",
+    "ruff>=0.15.20",
+    "httpx2>=2.5.0",
+    "ty>=0.0.55",
     "pytest>=9.1.1",
     "pytest-cov>=6.0",
     "pytest-asyncio>=1.4.0",
-    "anyio>=4.14.0",
+    "anyio>=4.14.1",
     "respx>=0.21",
 ]
 
