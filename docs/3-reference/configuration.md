@@ -6,6 +6,32 @@ All environment variables are read at startup from the process environment or fr
 
 All variables use the `VISION_NSFW_` prefix. Nested tier configs support `__`-delimited sub-keys (see [Tier configuration](#tier-configuration) below).
 
+Any variable can also be supplied as a **Docker/Swarm secret** instead of a plain env var — see [Docker secrets](#docker-secrets) below. Precedence, highest first: explicit env var → `.env` file → secrets file → field default.
+
+---
+
+## Docker secrets
+
+If `/run/secrets` exists in the container, each variable can be provided as a file named after it, e.g. `/run/secrets/VISION_NSFW_API_KEY` containing just the secret value (no quoting, trailing newline is fine). This is populated automatically by Docker Swarm's `secrets:` mechanism, or you can mount your own files there manually (e.g. via a Compose `secrets:` block backed by `file:` or `external: true`).
+
+```yaml
+services:
+  nsfw-classifier:
+    image: lychee-nsfw-classification
+    secrets:
+      - VISION_NSFW_API_KEY
+    environment:
+      VISION_NSFW_LYCHEE_API_URL: https://lychee.example.com
+
+secrets:
+  VISION_NSFW_API_KEY:
+    file: ./secrets/api_key.txt
+```
+
+An explicit environment variable or `.env` entry for the same name always wins over the secrets file, so you can mix and match: keep non-sensitive settings in `.env`/`environment:` and only the actual secrets (`VISION_NSFW_API_KEY`, `VISION_NSFW_PG_PASSWORD`, `VISION_NSFW_REDIS_PASSWORD`) in `secrets:`.
+
+If `/run/secrets` isn't mounted, this is a no-op — the service behaves exactly as before.
+
 ---
 
 ## Required

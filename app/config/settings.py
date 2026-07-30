@@ -300,6 +300,11 @@ class AppSettings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        # Docker/Swarm secrets: a file /run/secrets/VISION_NSFW_API_KEY is
+        # equivalent to setting the VISION_NSFW_API_KEY env var. Only enabled
+        # when the directory is actually mounted, so environments that don't
+        # use Docker secrets never pay for a missing-directory warning.
+        secrets_dir="/run/secrets" if Path("/run/secrets").is_dir() else None,
     )
 
     def to_diagnostics_payload(self) -> dict[str, str]:

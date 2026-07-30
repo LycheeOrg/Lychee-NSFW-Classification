@@ -1,5 +1,5 @@
-IMAGE  ?= lychee-ai-vision
-PORT   ?= 8000
+IMAGE  ?= lychee-nsfw-classifier
+PORT   ?= 8005
 
 .PHONY: lint test run docker-build docker-run
 

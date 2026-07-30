@@ -81,6 +81,40 @@ If you are running Lychee via Docker Compose, add the service to the same `docke
 
 ---
 
+## Using Docker secrets
+
+Instead of (or alongside) `--env-file`/`environment:`, any `VISION_NSFW_*` variable can be supplied as a file mounted at `/run/secrets/<VARIABLE_NAME>` — the standard Docker Swarm secrets mount point. This keeps sensitive values (the API key, database/Redis passwords) out of `.env` files and `docker inspect` output.
+
+```yaml
+services:
+  nsfw-classifier:
+    image: lychee-nsfw-classification
+    environment:
+      VISION_NSFW_LYCHEE_API_URL: https://lychee.example.com
+    secrets:
+      - VISION_NSFW_API_KEY
+    ports:
+      - "8000:8000"
+
+secrets:
+  VISION_NSFW_API_KEY:
+    file: ./secrets/api_key.txt
+```
+
+Under plain `docker run`, mount a directory the same way:
+
+```bash
+docker run --rm \
+  -e VISION_NSFW_LYCHEE_API_URL=https://lychee.example.com \
+  -v $(pwd)/secrets:/run/secrets:ro \
+  -p 8000:8000 \
+  lychee-nsfw-classification
+```
+
+An explicit env var or `.env` value for the same name still takes precedence over the secrets file. See [Configuration reference — Docker secrets](../3-reference/configuration.md#docker-secrets) for the full precedence rules and which variables are secret-eligible.
+
+---
+
 ## Verify the service is running
 
 ```bash
