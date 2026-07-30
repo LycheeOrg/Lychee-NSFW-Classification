@@ -284,6 +284,8 @@ docker run --rm \
   lychee-nsfw-classification
 ```
 
+Sensitive values (`VISION_NSFW_API_KEY`, DB/Redis passwords) can also be supplied as Docker/Swarm secrets files (`/run/secrets/<VARIABLE_NAME>`) instead of plain env vars.
+
 See [Deploy with Docker](docs/2-how-to/deploy-with-docker.md) for a full deployment guide.
 
 [build-status-shield]: https://img.shields.io/github/actions/workflow/status/LycheeOrg/Lychee-NSFW-Classification/CICD.yaml?branch=master
