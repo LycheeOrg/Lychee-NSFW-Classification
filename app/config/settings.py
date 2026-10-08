@@ -335,7 +335,7 @@ def get_settings() -> AppSettings:
     mock settings without touching environment variables.
     """
     try:
-        return AppSettings()  # ty: ignore
+        return AppSettings()
     except ValidationError as exc:
         _pretty_config_error(exc)
         raise SystemExit(1) from None
