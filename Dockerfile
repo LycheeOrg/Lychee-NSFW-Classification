@@ -12,4 +12,5 @@ COPY app/ app/
 
 EXPOSE 8000
 
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# --no-sync: use the venv built above; a plain `uv run` would re-sync at startup (dev deps + project build).
+CMD ["uv", "run", "--no-sync", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
